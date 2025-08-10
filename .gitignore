@@ -1,0 +1,27 @@
+# Laravel依存ディレクトリ
+www/vendor/
+www/node_modules/
+
+# Laravelのストレージ・キャッシュ
+www/public/storage
+www/storage/*.key
+www/storage/app/public
+www/storage/framework/cache/*
+www/storage/framework/sessions/*
+www/storage/framework/views/*
+www/storage/logs/*.log
+
+# 環境ファイル
+www/.env
+www/.env.backup
+
+# Laravel TelescopeやDebugbarのデータ
+www/storage/debugbar
+
+# IDE/エディタ設定
+.idea/
+.vscode/
+*.swp
+
+docker/nginx/logs/*
+docker/mysql/storage/

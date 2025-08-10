@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["resources/ts/*", "resources/ts/*.tsx", "resources/ts/*.js"]
+    },
+    "moduleResolution": "nodenext",
+    "module": "nodenext",
+    "jsx": "react-jsx",
+    "allowImportingTsExtensions": false
+  }
+}

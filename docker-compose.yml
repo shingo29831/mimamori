@@ -1,0 +1,54 @@
+services:
+  app:
+    build:
+      context: ./docker/app
+    user: "1000:1000"
+
+    depends_on:
+      - db
+    volumes:
+      - ./:/src
+      - ./docker/app/php.ini:/usr/local/etc/php/php.ini
+  
+  node:
+    build:
+      context: ./docker/node
+    tty: true
+    ports:
+      - 5173:5173
+    volumes:
+      - ./:/src
+  
+  db:
+    build:
+      context: "docker/mysql/"
+    command: --default-authentication-plugin=mysql_native_password
+    ports:
+      - 3306:3306
+    environment:
+      - MYSQL_DATABASE=database #データベース名
+      - MYSQL_HOST=mysql
+      - MYSQL_USER=user #ユーザ名
+      - MYSQL_PASSWORD=pass #ユーザパスワード
+      - MYSQL_ROOT_PASSWORD=root_pass #ルートユーザーのパスワード
+      - TZ=Asia/Tokyo
+    volumes:
+      - "./docker/mysql/storage/:/var/lib/mysql"
+      - "./docker/mysql/initdb/:/docker-entrypoint-initdb.d"
+  nginx:
+    build:
+      context: ./docker/nginx
+    depends_on:
+      - app
+    ports:
+      - 80:80
+    volumes:
+      - ./:/src
+      - ./docker/nginx/logs:/src/docker/nginx/logs
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    restart: always
