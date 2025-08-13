@@ -32,3 +32,11 @@ Route::get('/dashboard/staff', function () {
 Route::get('/dashboard/family', function () {
     return view('react');
 });
+
+Route::get('/management/family-links', function () {
+    return view('react');
+});
+
+Route::get('/management/system-management', function () {
+    return view('react');
+});
