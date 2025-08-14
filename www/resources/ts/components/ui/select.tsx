@@ -17,7 +17,8 @@ const SelectTrigger = React.forwardRef<
         ref={ref}
         className={cn(
             "flex h-12 w-full items-center justify-between rounded-md",
-            "border border-gray-300 bg-white px-3 text-[15px]",
+            // ▼ アイコン分の余白を右に確保
+            "border border-gray-300 bg-white px-3 pr-9 text-[15px]",
             "ring-offset-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-1",
             "disabled:cursor-not-allowed disabled:opacity-50",
             "[&>span]:line-clamp-1",
@@ -119,7 +120,7 @@ const SelectLabel = React.forwardRef<
 ));
 SelectLabel.displayName = SelectPrimitive.Label.displayName;
 
-// ── Item: “透明化しない” を徹底。ホバー/選択状態を明確化。
+// ── Item: ✓ とテキストが被らないよう pl-8 を Item 本体に付与
 const SelectItem = React.forwardRef<
     React.ElementRef<typeof SelectPrimitive.Item>,
     React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
@@ -128,13 +129,11 @@ const SelectItem = React.forwardRef<
         ref={ref}
         className={cn(
             "relative flex w-full cursor-pointer select-none items-center",
-            "rounded-md px-3 py-3 text-[15px] leading-6 outline-none",
+            // ▼ 左側に余白を確保（✓分）
+            "rounded-md pl-8 pr-3 py-3 text-[15px] leading-6 outline-none",
             "text-gray-900",
-            // disabled
             "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-            // キーボード/ホバーでのハイライト
             "data-[highlighted]:bg-green-50 data-[highlighted]:text-gray-900 data-[highlighted]:outline-none",
-            // 決定（チェック）状態
             "data-[state=checked]:bg-green-100 data-[state=checked]:text-green-800",
             className
         )}
