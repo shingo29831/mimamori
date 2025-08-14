@@ -514,28 +514,44 @@ export default function LinkManagementPage() {
 
     return (
         <div className="min-h-screen bg-gray-50">
-            {/* ヘッダー */}
             <header className="bg-white shadow-sm border-b">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex items-center justify-between py-4">
-                        <div className="flex items-center gap-4">
-                            <Link to="/dashboard/staff">
-                                <Button variant="outline" size="sm">
-                                    <ArrowLeft className="h-4 w-4 mr-2" />
-                                    戻る
-                                </Button>
-                            </Link>
-                            <div>
-                                <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                                    <LinkIcon className="h-6 w-6" />
-                                    紐づけ管理
-                                </h1>
-                                <p className="text-gray-600">
-                                    家族ユーザー、高齢者、センサーの紐づけ設定
-                                </p>
-                            </div>
+                    {/* 1段目：タイトル行（戻る＋タイトル＋説明） */}
+                    <div className="flex items-center gap-3 py-4">
+                        <Link to="/dashboard/staff" aria-label="戻る">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="rounded-full border hover:bg-gray-50"
+                            >
+                                <ArrowLeft className="h-5 w-5" />
+                            </Button>
+                        </Link>
+
+                        <div className="min-w-0">
+                            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                                <LinkIcon className="h-6 w-6" />
+                                <span className="truncate">紐づけ管理</span>
+                            </h1>
+                            <p className="text-gray-600 text-sm">
+                                家族ユーザー、高齢者、センサーの紐づけ設定
+                            </p>
                         </div>
                     </div>
+
+                    {/* 2段目：パンくず（任意。要らなければ削除OK） */}
+                    <nav className="pb-2 -mt-2 text-sm text-gray-500">
+                        <Link
+                            to="/dashboard/staff"
+                            className="hover:text-gray-900"
+                        >
+                            管理機能
+                        </Link>
+                        <span className="mx-2">/</span>
+                        <span className="text-gray-900 font-medium">
+                            紐づけ管理
+                        </span>
+                    </nav>
                 </div>
             </header>
 

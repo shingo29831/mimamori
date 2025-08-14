@@ -465,25 +465,44 @@ const Page = () => {
         <div className="min-h-screen bg-gray-50">
             <header className="bg-white shadow-sm border-b">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex items-center justify-between py-4">
-                        <div className="flex items-center gap-4">
-                            <RouterLink to="/dashboard/staff">
-                                <Button variant="outline" size="sm">
-                                    <ArrowLeft className="h-4 w-4 mr-2" />
-                                    戻る
-                                </Button>
-                            </RouterLink>
-                            <div>
-                                <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                                    <Settings className="h-6 w-6" />
+                    {/* 1段目：戻るアイコン＋タイトル */}
+                    <div className="flex items-center gap-3 py-4">
+                        <RouterLink to="/dashboard/staff" aria-label="戻る">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="rounded-full border hover:bg-gray-50"
+                            >
+                                <ArrowLeft className="h-5 w-5" />
+                            </Button>
+                        </RouterLink>
+
+                        <div className="min-w-0">
+                            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                                <Settings className="h-6 w-6" />
+                                <span className="truncate">
                                     システム管理画面
-                                </h1>
-                                <p className="text-gray-600">
-                                    利用者、高齢者、高齢者宅、センサーの管理と紐付け設定
-                                </p>
-                            </div>
+                                </span>
+                            </h1>
+                            <p className="text-gray-600 text-sm">
+                                利用者、高齢者、高齢者宅、センサーの管理と紐付け設定
+                            </p>
                         </div>
                     </div>
+
+                    {/* 2段目：パンくず（不要なら削除可） */}
+                    <nav className="pb-2 -mt-2 text-sm text-gray-500">
+                        <RouterLink
+                            to="/dashboard/staff"
+                            className="hover:text-gray-900"
+                        >
+                            管理機能
+                        </RouterLink>
+                        <span className="mx-2">/</span>
+                        <span className="text-gray-900 font-medium">
+                            システム管理画面
+                        </span>
+                    </nav>
                 </div>
             </header>
 
