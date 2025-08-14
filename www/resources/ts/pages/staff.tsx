@@ -625,18 +625,19 @@ export default function StaffDashboard() {
                                             <div className="flex items-center gap-2">
                                                 <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
                                                 <span>
-                                                    紐づけ管理（高齢者-宅、センサー-宅、利用者-高齢者）
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                                                <span>
                                                     一覧・登録（利用者、高齢者、高齢者宅、センサー）
                                                 </span>
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                                                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                                                 <span>未登録センサー管理</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                                                <span>
+                                                    紐づけ管理（高齢者-宅、利用者-高齢者、
+                                                    センサー-宅）
+                                                </span>
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
@@ -662,32 +663,22 @@ export default function StaffDashboard() {
                                                 紐づけ管理画面を開く
                                             </Button>
                                         </Link>
-                                        <div className="space-y-3">
-                                            <div className="flex items-center justify-between p-3 border rounded-lg">
-                                                <div>
-                                                    <div className="font-medium">
-                                                        家族ユーザー紐づけ
-                                                    </div>
-                                                    <div className="text-sm text-gray-500">
-                                                        家族ユーザーと高齢者の関係設定
-                                                    </div>
-                                                </div>
-                                                <Badge variant="outline">
-                                                    3件
-                                                </Badge>
+                                        <div className="space-y-2 text-sm text-gray-600">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                                                <span>家族ユーザー別</span>
                                             </div>
-                                            <div className="flex items-center justify-between p-3 border rounded-lg">
-                                                <div>
-                                                    <div className="font-medium">
-                                                        センサー紐づけ
-                                                    </div>
-                                                    <div className="text-sm text-gray-500">
-                                                        センサーと高齢者宅の配置設定
-                                                    </div>
-                                                </div>
-                                                <Badge variant="outline">
-                                                    4件
-                                                </Badge>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                                                <span>高齢者宅別</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                                                <span>センサー別</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                                                <span>絞り込み・検索機能</span>
                                             </div>
                                         </div>
                                     </div>
