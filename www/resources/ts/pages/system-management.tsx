@@ -84,6 +84,84 @@ interface Relationship {
     createdAt: string;
 }
 
+function Empty({ children }: { children: React.ReactNode }) {
+  return <p className="text-sm text-gray-500 py-6 text-center">{children}</p>
+}
+
+
+// === API ヘルパ ===
+const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "")
+
+const authHeaders = () => {
+  const token = localStorage.getItem("token")
+  return {
+    Accept: "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }
+}
+
+async function apiFetch<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: { ...authHeaders(), ...init.headers },
+  })
+  // Laravel標準の JSON 返却を想定
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const msg =
+      (data && (data.message || data.error)) ||
+      `Request failed: ${res.status} ${res.statusText}`
+    throw new Error(msg)
+  }
+  return data
+}
+
+// === レスポンス → 画面用にマッピング（snake/camel両対応） ===
+const mapUser = (r: any): User => ({
+  userId: r.user_id ?? r.userId,
+  userName: r.user_name ?? r.userName,
+  email: r.email,
+  role: r.role,
+  createdAt: r.created_at ?? r.createdAt,
+})
+
+const mapResident = (r: any): Resident => ({
+  residentId: r.resident_id ?? r.residentId,
+  residentName: r.resident_name ?? r.residentName,
+  birthDate: r.date_of_birth ?? r.birthDate,
+  age: r.age ?? r.age_calc ?? 0,
+  createdAt: r.created_at ?? r.createdAt,
+})
+
+const mapHome = (r: any): HomeData => ({
+  homeId: r.home_id ?? r.homeId,
+  homeName: r.home_name ?? r.homeName,
+  address: r.address,
+  sensorCount: r.sensor_count ?? r.sensorCount ?? 0,
+  createdAt: r.created_at ?? r.createdAt,
+})
+
+const mapSensor = (r: any): SensorData => ({
+  sensorId: r.sensor_id ?? r.sensorId,
+  sensorName: r.sensor_name ?? r.sensorName,
+  sensorType: r.sensor_type ?? r.sensorType,
+  homeId: r.home_id ?? r.homeId,
+  homeName: r.home_name ?? r.homeName,
+  roomName: r.room_name ?? r.roomName,
+  status: r.status,
+  lastActive: r.last_active ?? r.lastActive ?? r.updated_at ?? r.updatedAt,
+})
+
+const mapRel = (r: any): Relationship => ({
+  id: String(r.id),
+  type: r.type,
+  fromName: r.from_name ?? r.fromName,
+  toName: r.to_name ?? r.toName,
+  relationship: r.relationship,
+  roomName: r.room_name ?? r.roomName,
+  createdAt: r.created_at ?? r.createdAt,
+})
+
 const Page = () => {
     const navigate = useNavigate(); // ← useRouter の代わり
 
@@ -143,54 +221,52 @@ const Page = () => {
 
     const loadUsers = async () => {
         try {
-            const response = await fetch("/api/admin/users");
-            const data = await response.json();
-            if (data.success) setUsers(data.users);
+            const data = await apiFetch<{ success?: boolean; users: any[] }>("/api/admin/users")
+            const arr = (data.users || []).map(mapUser)
+            setUsers(arr)
         } catch (e) {
-            console.error("利用者データの読み込みエラー:", e);
+            console.error("利用者データの読み込みエラー:", e)
         }
-    };
+    }
+
     const loadResidents = async () => {
         try {
-            const response = await fetch("/api/admin/residents");
-            const data = await response.json();
-            if (data.success) setResidents(data.residents);
+            const data = await apiFetch<{ residents: any[] }>("/api/admin/residents")
+            setResidents((data.residents || []).map(mapResident))
         } catch (e) {
-            console.error("高齢者データの読み込みエラー:", e);
+            console.error("高齢者データの読み込みエラー:", e)
         }
-    };
+    }
+
     const loadHomes = async () => {
         try {
-            const response = await fetch("/api/admin/homes");
-            const data = await response.json();
-            if (data.success) setHomes(data.homes);
+            const data = await apiFetch<{ homes: any[] }>("/api/admin/homes")
+            setHomes((data.homes || []).map(mapHome))
         } catch (e) {
-            console.error("高齢者宅データの読み込みエラー:", e);
+            console.error("高齢者宅データの読み込みエラー:", e)
         }
-    };
+    }
+
     const loadSensors = async () => {
         try {
-            const response = await fetch("/api/admin/sensors");
-            const data = await response.json();
-            if (data.success) {
-                setSensors(data.sensors.filter((s: SensorData) => s.homeId));
-                setUnregisteredSensors(
-                    data.sensors.filter((s: SensorData) => !s.homeId)
-                );
-            }
+            const data = await apiFetch<{ sensors: any[] }>("/api/admin/sensors")
+            const all = (data.sensors || []).map(mapSensor)
+            setSensors(all.filter((s) => !!s.homeId))
+            setUnregisteredSensors(all.filter((s) => !s.homeId))
         } catch (e) {
-            console.error("センサーデータの読み込みエラー:", e);
+            console.error("センサーデータの読み込みエラー:", e)
         }
-    };
+    }
+
     const loadRelationships = async () => {
         try {
-            const response = await fetch("/api/admin/relationships");
-            const data = await response.json();
-            if (data.success) setRelationships(data.relationships);
+            const data = await apiFetch<{ relationships: any[] }>("/api/admin/relationships")
+            setRelationships((data.relationships || []).map(mapRel))
         } catch (e) {
-            console.error("紐付けデータの読み込みエラー:", e);
+            console.error("紐付けデータの読み込みエラー:", e)
         }
-    };
+    }
+
 
     const handleCreateUser = async () => {
         if (!newUser.userName || !newUser.email) {
@@ -198,7 +274,7 @@ const Page = () => {
             return;
         }
         try {
-            const res = await fetch("/api/admin/users", {
+            const res = await apiFetch("/api/admin/users", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(newUser),
@@ -224,7 +300,7 @@ const Page = () => {
             return;
         }
         try {
-            const res = await fetch("/api/admin/residents", {
+            const res = await apiFetch("/api/admin/residents", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(newResident),
@@ -250,7 +326,7 @@ const Page = () => {
             return;
         }
         try {
-            const res = await fetch("/api/admin/homes", {
+            const res = await apiFetch("/api/admin/homes", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(newHome),
@@ -283,7 +359,7 @@ const Page = () => {
             return;
         }
         try {
-            const res = await fetch("/api/admin/sensors", {
+            const res = await apiFetch("/api/admin/sensors", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(newSensor),
@@ -321,7 +397,7 @@ const Page = () => {
             return;
         }
         try {
-            const res = await fetch("/api/admin/relationships", {
+            const res = await apiFetch("/api/admin/relationships", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -353,7 +429,7 @@ const Page = () => {
             return;
         }
         try {
-            const res = await fetch("/api/admin/relationships", {
+            const res = await apiFetch("/api/admin/relationships", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -381,7 +457,7 @@ const Page = () => {
             return;
         }
         try {
-            const res = await fetch("/api/admin/relationships", {
+            const res = await apiFetch("/api/admin/relationships", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -410,7 +486,7 @@ const Page = () => {
 
     const handleDeleteRelationship = async (type: string, id: string) => {
         try {
-            const res = await fetch(
+            const res = await apiFetch(
                 `/api/admin/relationships?type=${type}&id=${id}`,
                 {
                     method: "DELETE",
@@ -672,6 +748,9 @@ const Page = () => {
                                 </Dialog>
                             </CardHeader>
                             <CardContent>
+                                {filteredUsers.length === 0 ? (
+                                    <Empty>利用者が見つかりません。</Empty>
+                                ) : (
                                 <div className="space-y-4">
                                     {filteredUsers.map((user) => (
                                         <Card key={user.userId} className="p-4">
@@ -710,6 +789,7 @@ const Page = () => {
                                         </Card>
                                     ))}
                                 </div>
+                                )}
                             </CardContent>
                         </Card>
                     </TabsContent>
@@ -792,6 +872,9 @@ const Page = () => {
                                 </Dialog>
                             </CardHeader>
                             <CardContent>
+                                {filteredResidents.length === 0 ? (
+                                    <Empty>高齢者が見つかりません。</Empty>
+                                ) : (
                                 <div className="space-y-4">
                                     {filteredResidents.map((resident) => (
                                         <Card
@@ -830,6 +913,7 @@ const Page = () => {
                                         </Card>
                                     ))}
                                 </div>
+                                )}
                             </CardContent>
                         </Card>
                     </TabsContent>
@@ -908,6 +992,9 @@ const Page = () => {
                                 </Dialog>
                             </CardHeader>
                             <CardContent>
+                                {filteredHomes.length === 0 ? (
+                                    <Empty>高齢者宅が見つかりません。</Empty>
+                                ) : (
                                 <div className="space-y-4">
                                     {filteredHomes.map((home) => (
                                         <Card key={home.homeId} className="p-4">
@@ -938,6 +1025,7 @@ const Page = () => {
                                         </Card>
                                     ))}
                                 </div>
+                                )}
                             </CardContent>
                         </Card>
                     </TabsContent>
@@ -1080,6 +1168,9 @@ const Page = () => {
                                 </Dialog>
                             </CardHeader>
                             <CardContent>
+                                {filteredSensors.length === 0 ? (
+                                    <Empty>登録済みセンサーが見つかりません。</Empty>
+                                ) : (
                                 <div className="space-y-4">
                                     {filteredSensors.map((sensor) => (
                                         <Card
@@ -1132,6 +1223,7 @@ const Page = () => {
                                         </Card>
                                     ))}
                                 </div>
+                                )}
                             </CardContent>
                         </Card>
                     </TabsContent>
@@ -1145,6 +1237,9 @@ const Page = () => {
                                 </CardDescription>
                             </CardHeader>
                             <CardContent>
+                                {filteredUnregisteredSensors.length === 0 ? (
+                                    <Empty>未登録センサーが見つかりません。</Empty>
+                                ) : (
                                 <div className="space-y-4">
                                     {filteredUnregisteredSensors.map(
                                         (sensor) => (
@@ -1179,6 +1274,7 @@ const Page = () => {
                                         )
                                     )}
                                 </div>
+                                )}
                             </CardContent>
                         </Card>
                     </TabsContent>
