@@ -9,18 +9,68 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Shield, Users, Home } from "lucide-react"
 
+const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "") // 例: http://localhost
+
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [role, setRole] = useState("")
+  const [role, setRole] = useState<"" | "staff" | "family">("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    // 認証処理のシミュレーション
-    if (role === "staff") {
-      window.location.href = "/dashboard/staff"
-    } else if (role === "family") {
-      window.location.href = "/dashboard/family"
+    setError(null)
+    setLoading(true)
+
+    try {
+      const res = await fetch(`${API_BASE}/api/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify({
+          email,                // サーバは email 必須
+          password,
+          role,                 // サーバ側でも厳密照合（必須）
+        }),
+      })
+
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        // サーバからのメッセージを優先表示
+        const msg =
+          data?.message ||
+          data?.errors?.email?.[0] ||
+          data?.errors?.password?.[0] ||
+          data?.errors?.role?.[0] ||
+          "ログインに失敗しました。入力内容をご確認ください。"
+        throw new Error(msg)
+      }
+
+      // token 保存（以降のAPIで使用）
+      if (data?.token) {
+        localStorage.setItem("token", data.token)
+      }
+
+      // 念のためクライアント側でもロール整合
+      if (data?.user?.role !== role) {
+        localStorage.removeItem("token")
+        throw new Error("権限が違います。選択し直してください。")
+      }
+
+      // ロールに応じて遷移
+      if (role === "staff") {
+        window.location.href = "/dashboard/staff"
+      } else {
+        window.location.href = "/dashboard/family"
+      }
+    } catch (err: any) {
+      setError(err?.message ?? "エラーが発生しました。時間をおいて再度お試しください。")
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -69,7 +119,7 @@ export default function LoginPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="role">ユーザー種別</Label>
-                <Select value={role} onValueChange={setRole} required>
+                <Select value={role} onValueChange={(v) => setRole(v as any)} required>
                   <SelectTrigger>
                     <SelectValue placeholder="選択してください" />
                   </SelectTrigger>
@@ -90,8 +140,10 @@ export default function LoginPage() {
                 </Select>
               </div>
 
-              <Button type="submit" className="w-full" disabled={!role}>
-                ログイン
+              {error && <p className="text-sm text-red-600">{error}</p>}
+
+              <Button type="submit" className="w-full" disabled={!role || loading}>
+                {loading ? "ログイン中..." : "ログイン"}
               </Button>
             </form>
           </CardContent>

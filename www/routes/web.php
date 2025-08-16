@@ -21,9 +21,7 @@ Route::get('/redis-test', function () {
     $value = Redis::get('test-key');
     return "Redisから取得した値: " . $value;
 });
-Route::get('/login', function () {
-    return view('react');
-});
+Route::view('/login', 'react')->name('login');
 
 Route::get('/dashboard/staff', function () {
     return view('react');
