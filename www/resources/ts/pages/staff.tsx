@@ -28,7 +28,8 @@ import {
     Plus,
     Database,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
 
 interface HomeStatus {
     homeId: string;
@@ -55,9 +56,11 @@ interface HomeStatus {
 }
 
 export default function StaffDashboard() {
-    const [homes, setHomes] = useState<HomeStatus[]>([]);
-    const [activeAlerts, setActiveAlerts] = useState(0);
-    const [wsConnected, setWsConnected] = useState(false);
+  const [homes, setHomes] = useState<HomeStatus[]>([]);
+  const [activeAlerts, setActiveAlerts] = useState(0);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const navigate = useNavigate();
 
     useEffect(() => {
         // モックデータの初期化
@@ -217,6 +220,28 @@ export default function StaffDashboard() {
         return () => clearInterval(interval);
     }, []);
 
+    const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      const token = localStorage.getItem("token");
+      // トークンがあればAPIへ通知（なくても問題なし）
+      if (token) {
+        await fetch(`${API_BASE}/api/logout`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+          },
+        }).catch(() => {});
+      }
+    } finally {
+      // 成否に関わらずトークン破棄してログインへ
+      localStorage.removeItem("token");
+      navigate("/login", { replace: true });
+    }
+  };
+
     const getAlertColor = (severity: string) => {
         switch (severity) {
             case "high":
@@ -252,48 +277,45 @@ export default function StaffDashboard() {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50">
-            {/* ヘッダー */}
-            <header className="bg-white shadow-sm border-b">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between items-center py-4">
-                        <div>
-                            <h1 className="text-2xl font-bold text-gray-900">
-                                職員ダッシュボード
-                            </h1>
-                            <p className="text-gray-600">
-                                高齢者宅見守りシステム
-                            </p>
-                        </div>
-                        <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-2">
-                                <Wifi
-                                    className={`h-4 w-4 ${
-                                        wsConnected
-                                            ? "text-green-500"
-                                            : "text-red-500"
-                                    }`}
-                                />
-                                <span className="text-sm text-gray-600">
-                                    {wsConnected
-                                        ? "リアルタイム接続中"
-                                        : "接続エラー"}
-                                </span>
-                            </div>
-                            <Button variant="outline" size="sm">
-                                <Bell className="h-4 w-4 mr-2" />
-                                アラート ({activeAlerts})
-                            </Button>
-                            <Link to="/profile">
-                                <Button variant="outline" size="sm">
-                                    <Settings className="h-4 w-4 mr-2" />
-                                    設定
-                                </Button>
-                            </Link>
-                        </div>
-                    </div>
-                </div>
-            </header>
+    <div className="min-h-screen bg-gray-50">
+      {/* ヘッダー */}
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-4">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">職員ダッシュボード</h1>
+              <p className="text-gray-600">高齢者宅見守りシステム</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Wifi className={`h-4 w-4 ${wsConnected ? "text-green-500" : "text-red-500"}`} />
+                <span className="text-sm text-gray-600">
+                  {wsConnected ? "リアルタイム接続中" : "接続エラー"}
+                </span>
+              </div>
+              <Button variant="outline" size="sm">
+                <Bell className="h-4 w-4 mr-2" />
+                アラート ({activeAlerts})
+              </Button>
+              <Link to="/profile">
+                <Button variant="outline" size="sm">
+                  <Settings className="h-4 w-4 mr-2" />
+                  設定
+                </Button>
+              </Link>
+              {/* ← 追加: ログアウトボタン */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLogout}
+                disabled={loggingOut}
+              >
+                {loggingOut ? "ログアウト中..." : "ログアウト"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </header>
 
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <Tabs defaultValue="overview" className="space-y-6">

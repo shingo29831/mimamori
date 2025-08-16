@@ -16,7 +16,13 @@ export default defineConfig({
         hmr: {
             clientPort: 5173,
             host: 'localhost',
-        }
+        },
+        proxy: {
+          // Laravel 側に中継（必要に応じてターゲット調整）
+          '/api': { target: 'http://localhost', changeOrigin: true, secure: false },
+          // Cookie モードのSanctumを使う時だけ
+          '/sanctum': { target: 'http://localhost', changeOrigin: true, secure: false },
+        },
     },
     plugins: [
         tailwindcss(),
@@ -24,7 +30,7 @@ export default defineConfig({
         laravel({
             input: [
                 'resources/ts/main.tsx',
-                'resources/ts/globals.css',
+                'resources/css/globals.css',
             ],
             refresh: true,
         }),
