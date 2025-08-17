@@ -382,25 +382,40 @@ useEffect(() => {
   })();
 }, []);
 
-async function reloadFamilyView() {
-  const { relationships } = await apiFetch<{ relationships: any[] }>(
-    "/api/admin/relationships?types=user-resident,resident-home"
-  );
+    async function reloadFamilyView() {
+        const { relationships } = await apiFetch<{ relationships: any[] }>(
+            "/api/admin/relationships?types=user-resident,resident-home"
+        );
 
-  const urr = (relationships || [])
-    .filter((r: any) => (r.type ?? r.relation_type) === "user-resident")
-    .map(mapRelUserResident);
+        const urr = (relationships || [])
+            .filter((r: any) => (r.type ?? r.relation_type) === "user-resident")
+            .map(mapRelUserResident);
 
-  const rrh = (relationships || [])
-    .filter((r: any) => (r.type ?? r.relation_type) === "resident-home")
-    .map(mapRelResidentHome);
+        const rrh = (relationships || [])
+            .filter((r: any) => (r.type ?? r.relation_type) === "resident-home")
+            .map(mapRelResidentHome);
 
-  setRelsUserResident(urr);
-  setRelsResidentHome(rrh);
+        setRelsUserResident(urr);
+        setRelsResidentHome(rrh);
 
-  // 既存の users/residents/homes の state を使って再構成
-  setFamilyUsers(buildFamilyView(allUsersRaw, residents, homes, urr, rrh));
-}
+        // 既存の users/residents/homes の state を使って再構成
+        setFamilyUsers(buildFamilyView(allUsersRaw, residents, homes, urr, rrh));
+    }
+
+        // ▼ 追加：失敗したら次候補を試すユーティリティ
+    async function tryDeleteSequential(urls: string[]) {
+        let lastErr: any;
+        for (const u of urls) {
+            try {
+            await apiFetch(u, { method: "DELETE" });
+            return; // 成功
+            } catch (e) {
+            lastErr = e;
+            }
+        }
+        throw lastErr ?? new Error("DELETE failed");
+    }
+
 
 
     const handleCreateFamilyLink = async () => {
@@ -479,30 +494,59 @@ async function reloadFamilyView() {
 
         try {
             if (type === "family") {
-            // 2パターンどちらでも動くように実装（サーバ側の仕様に合わせて片方にしてOK）
-            // ① userId/residentId で削除
-            await apiFetch<{ success?: boolean; message?: string }>(
+        // userId=id1, residentId=id2 に一致する関係を state から探す
+        const hit = relsUserResident.find(
+            (r) => r.userId === id1 && r.residentId === id2
+        );
+        const urls = hit
+            ? [
+                // まず relationships/:id を試す（作成と同じ資源名で整合）
+                `/api/admin/relationships/${encodeURIComponent(hit.id)}`,
+                // バックエンドが guardians/:id の場合のフォールバック
+                `/api/admin/guardians/${encodeURIComponent(hit.id)}`,
+            ]
+            : [
+                // id が取れなかったときの最終手段（既存実装）
                 `/api/admin/guardians?userId=${encodeURIComponent(id1)}&residentId=${encodeURIComponent(id2)}`,
-                { method: "DELETE" }
-            );
-
-            // ② もし上の仕様ではなく /api/admin/guardians/:id なら、relsUserResident から ID を引いて削除する:
-            // const hit = relsUserResident.find(g => g.userId === id1 && g.residentId === id2);
-            // if (hit) {
-            //   await apiFetch(`/api/admin/guardians/${hit.id}`, { method: "DELETE" });
-            // }
-
-            await reloadFamilyView();
-            alert("紐づけが削除されました");
-            return;
-            }
-
-            // 他タイプ（resident-home / sensor）は既存の処理のまま
-            console.log("紐づけを削除:", { type, id1, id2 });
-            alert("紐づけが削除されました");
-        } catch (e: any) {
-            alert(`削除に失敗しました: ${e?.message ?? e}`);
+            ];
+        await tryDeleteSequential(urls);
+        await reloadFamilyView();
+        alert("紐づけが削除されました");
+        return;
         }
+
+        if (type === "resident-home") {
+        // residentId=id1, homeId=id2 の関係を探す
+        const hit = relsResidentHome.find(
+            (r) => r.residentId === id1 && r.homeId === id2
+        );
+        if (!hit) throw new Error("対象の居住関係が見つかりませんでした");
+        await tryDeleteSequential([
+            `/api/admin/relationships/${encodeURIComponent(hit.id)}`,
+            // バックエンドが別資源名の場合の保険
+            `/api/admin/resident-homes/${encodeURIComponent(hit.id)}`,
+        ]);
+        await reloadFamilyView();
+        alert("紐づけが削除されました");
+        return;
+        }
+
+        if (type === "sensor") {
+        // センサー紐づけのAPIは環境依存。代表的な2パターンを順に試す。
+        await tryDeleteSequential([
+            // クエリ指定型
+            `/api/admin/sensor-links?sensorId=${encodeURIComponent(id1)}&homeId=${encodeURIComponent(id2)}`,
+            // リソース型（例）
+            `/api/admin/homes/${encodeURIComponent(id2)}/sensors/${encodeURIComponent(id1)}`,
+        ]);
+        // 必要ならセンサー一覧の再取得をここで
+        // await reloadSensors();
+        alert("紐づけが削除されました");
+        return;
+        }
+            } catch (e: any) {
+                alert(`削除に失敗しました: ${e?.message ?? e}`);
+            }
     };
 
 

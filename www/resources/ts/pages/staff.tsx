@@ -29,7 +29,20 @@ import {
     Database,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import Echo from "laravel-echo";
+import Pusher from "pusher-js";
+import { useRef } from "react";
+
 const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
+
+type SensorMetricsEvent = {
+  homeId: string;
+  sensorId?: string;
+  temperature?: number; // nullable可 → 存在する場合のみ反映
+  humidity?: number;    // nullable可 → 存在する場合のみ反映
+  timestamp?: string;
+};
+
 
 interface HomeStatus {
     homeId: string;
@@ -55,170 +68,256 @@ interface HomeStatus {
     }>;
 }
 
+
 export default function StaffDashboard() {
   const [homes, setHomes] = useState<HomeStatus[]>([]);
   const [activeAlerts, setActiveAlerts] = useState(0);
   const [wsConnected, setWsConnected] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const navigate = useNavigate();
+  const echoRef = useRef<Echo<any> | null>(null);
+  const subscribedRef = useRef<Set<string>>(new Set());
+
+  
+
+    function ensureEcho() {
+    if (echoRef.current) return echoRef.current;
+
+    // Pusher を window にバインド（laravel-echo の既定動作）
+    (window as any).Pusher = Pusher;
+
+    const echo = new Echo({
+        broadcaster: "pusher",
+        key: import.meta.env.VITE_PUSHER_APP_KEY || "local",
+        wsHost: import.meta.env.VITE_PUSHER_HOST || window.location.hostname,
+        wsPort: Number(import.meta.env.VITE_PUSHER_PORT || 6001),
+        wssPort: Number(import.meta.env.VITE_PUSHER_PORT || 6001),
+        forceTLS: (import.meta.env.VITE_PUSHER_FORCE_TLS || "false") === "true",
+        enabledTransports: ["ws", "wss"],
+        cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER || "mt1",
+        disableStats: (import.meta.env.VITE_PUSHER_DISABLE_STATS || "true") === "true",
+    });
+
+    // 接続状態の反映
+    const p = (echo.connector as any)?.pusher;
+    if (p?.connection) {
+        p.connection.bind("connected", () => setWsConnected(true));
+        p.connection.bind("disconnected", () => setWsConnected(false));
+        p.connection.bind("unavailable", () => setWsConnected(false));
+    }
+
+    echoRef.current = echo;
+    return echo;
+    }
+
+    function applyMetricsUpdate(prev: HomeStatus[], evt: SensorMetricsEvent): HomeStatus[] {
+        return prev.map((h) => {
+            if (h.homeId !== evt.homeId) return h;
+            const next = { ...h };
+
+            if (typeof evt.temperature === "number" && !Number.isNaN(evt.temperature)) {
+            next.temperature = evt.temperature;
+            }
+            if (typeof evt.humidity === "number" && !Number.isNaN(evt.humidity)) {
+            next.humidity = evt.humidity;
+            }
+
+            // タイムスタンプが来たら最終活動表示を更新（任意）
+            if (evt.timestamp) {
+            next.lastActivity = "たった今";
+            }
+            return next;
+        });
+    }
+
+    // (A) 購読: homes が決まったら各 home のチャネルに一度だけ参加
+    useEffect(() => {
+    if (!homes.length) return;
+
+    const echo = ensureEcho();
+    const subs = subscribedRef.current;
+
+    homes.forEach((h) => {
+        if (subs.has(h.homeId)) return; // 既に購読済みならスキップ
+
+        echo.channel(`homes.${h.homeId}`)
+        .listen(".SensorMetricsUpdated", (payload: SensorMetricsEvent) => {
+            setHomes((prev) => applyMetricsUpdate(prev, payload));
+        });
+
+        subs.add(h.homeId);
+    });
+    }, [homes]); // ← homes がセット/増減されたタイミングで購読を増やす
 
     useEffect(() => {
-        // モックデータの初期化
-        const mockHomes: HomeStatus[] = [
-            {
-                homeId: "home_001",
-                homeName: "田中花子宅",
-                residentName: "田中 花子",
-                address: "東京都世田谷区桜丘1-1-1",
-                temperature: 24.5,
-                humidity: 55,
-                doorStatus: "closed",
-                lastActivity: "5分前",
-                fallDetected: false,
-                alerts: [],
-                sensors: [
-                    {
-                        sensorId: "MT10_001",
-                        type: "MT10",
-                        status: "active",
-                        lastSeen: "1分前",
-                    },
-                    {
-                        sensorId: "MT20_001",
-                        type: "MT20",
-                        status: "active",
-                        lastSeen: "30秒前",
-                    },
-                    {
-                        sensorId: "MT30_001",
-                        type: "MT30",
-                        status: "active",
-                        lastSeen: "2分前",
-                    },
-                    {
-                        sensorId: "MV23_001",
-                        type: "MV23",
-                        status: "active",
-                        lastSeen: "15秒前",
-                    },
-                ],
-            },
-            {
-                homeId: "home_002",
-                homeName: "佐藤太郎宅",
-                residentName: "佐藤 太郎",
-                address: "東京都杉並区高円寺2-2-2",
-                temperature: 26.8,
-                humidity: 62,
-                doorStatus: "open",
-                lastActivity: "2分前",
-                fallDetected: false,
-                alerts: [
-                    {
-                        type: "temperature",
-                        message: "室温が設定値を超えています (26.8°C)",
-                        timestamp: "2分前",
-                        severity: "medium",
-                    },
-                ],
-                sensors: [
-                    {
-                        sensorId: "MT10_002",
-                        type: "MT10",
-                        status: "active",
-                        lastSeen: "1分前",
-                    },
-                    {
-                        sensorId: "MT20_002",
-                        type: "MT20",
-                        status: "active",
-                        lastSeen: "30秒前",
-                    },
-                    {
-                        sensorId: "MT30_002",
-                        type: "MT30",
-                        status: "active",
-                        lastSeen: "1分前",
-                    },
-                    {
-                        sensorId: "MV23_002",
-                        type: "MV23",
-                        status: "active",
-                        lastSeen: "20秒前",
-                    },
-                ],
-            },
-            {
-                homeId: "home_003",
-                homeName: "山田次郎宅",
-                residentName: "山田 次郎",
-                address: "東京都練馬区石神井3-3-3",
-                temperature: 23.2,
-                humidity: 48,
-                doorStatus: "closed",
-                lastActivity: "1時間前",
-                fallDetected: true,
-                alerts: [
-                    {
-                        type: "fall",
-                        message: "転倒の可能性が検知されました（10秒以上継続）",
-                        timestamp: "30分前",
-                        severity: "high",
-                    },
-                ],
-                sensors: [
-                    {
-                        sensorId: "MT10_003",
-                        type: "MT10",
-                        status: "active",
-                        lastSeen: "1分前",
-                    },
-                    {
-                        sensorId: "MT20_003",
-                        type: "MT20",
-                        status: "active",
-                        lastSeen: "30秒前",
-                    },
-                    {
-                        sensorId: "MT30_003",
-                        type: "MT30",
-                        status: "active",
-                        lastSeen: "3分前",
-                    },
-                    {
-                        sensorId: "MV23_003",
-                        type: "MV23",
-                        status: "active",
-                        lastSeen: "10秒前",
-                    },
-                ],
-            },
-        ];
-
-        setHomes(mockHomes);
-        setActiveAlerts(
-            mockHomes.reduce((acc, home) => acc + home.alerts.length, 0)
-        );
-
-        // WebSocket接続のシミュレーション
-        setWsConnected(true);
-
-        // 10秒ごとのデータ更新（WebSocketシミュレーション）
-        const interval = setInterval(() => {
-            setHomes((prevHomes) =>
-                prevHomes.map((home) => ({
-                    ...home,
-                    temperature: home.temperature + (Math.random() - 0.5) * 0.5,
-                    humidity: home.humidity + (Math.random() - 0.5) * 2,
-                    // 転倒検知の誤検知対策：10秒以上継続した場合のみアラート
-                    fallDetected:
-                        Math.random() > 0.98 ? true : home.fallDetected,
-                }))
-            );
-        }, 10000);
-
-        return () => clearInterval(interval);
+        return () => {
+            const echo = echoRef.current;
+            if (!echo) return;
+            subscribedRef.current.forEach((hid) => {
+            echo.leave(`homes.${hid}`);
+            });
+            subscribedRef.current.clear();
+        };
     }, []);
+
+    // useEffect(() => {
+    //     // モックデータの初期化
+    //     const mockHomes: HomeStatus[] = [
+    //         {
+    //             homeId: "home_001",
+    //             homeName: "田中花子宅",
+    //             residentName: "田中 花子",
+    //             address: "東京都世田谷区桜丘1-1-1",
+    //             temperature: 24.5,
+    //             humidity: 55,
+    //             doorStatus: "closed",
+    //             lastActivity: "5分前",
+    //             fallDetected: false,
+    //             alerts: [],
+    //             sensors: [
+    //                 {
+    //                     sensorId: "MT10_001",
+    //                     type: "MT10",
+    //                     status: "active",
+    //                     lastSeen: "1分前",
+    //                 },
+    //                 {
+    //                     sensorId: "MT20_001",
+    //                     type: "MT20",
+    //                     status: "active",
+    //                     lastSeen: "30秒前",
+    //                 },
+    //                 {
+    //                     sensorId: "MT30_001",
+    //                     type: "MT30",
+    //                     status: "active",
+    //                     lastSeen: "2分前",
+    //                 },
+    //                 {
+    //                     sensorId: "MV23_001",
+    //                     type: "MV23",
+    //                     status: "active",
+    //                     lastSeen: "15秒前",
+    //                 },
+    //             ],
+    //         },
+    //         {
+    //             homeId: "home_002",
+    //             homeName: "佐藤太郎宅",
+    //             residentName: "佐藤 太郎",
+    //             address: "東京都杉並区高円寺2-2-2",
+    //             temperature: 26.8,
+    //             humidity: 62,
+    //             doorStatus: "open",
+    //             lastActivity: "2分前",
+    //             fallDetected: false,
+    //             alerts: [
+    //                 {
+    //                     type: "temperature",
+    //                     message: "室温が設定値を超えています (26.8°C)",
+    //                     timestamp: "2分前",
+    //                     severity: "medium",
+    //                 },
+    //             ],
+    //             sensors: [
+    //                 {
+    //                     sensorId: "MT10_002",
+    //                     type: "MT10",
+    //                     status: "active",
+    //                     lastSeen: "1分前",
+    //                 },
+    //                 {
+    //                     sensorId: "MT20_002",
+    //                     type: "MT20",
+    //                     status: "active",
+    //                     lastSeen: "30秒前",
+    //                 },
+    //                 {
+    //                     sensorId: "MT30_002",
+    //                     type: "MT30",
+    //                     status: "active",
+    //                     lastSeen: "1分前",
+    //                 },
+    //                 {
+    //                     sensorId: "MV23_002",
+    //                     type: "MV23",
+    //                     status: "active",
+    //                     lastSeen: "20秒前",
+    //                 },
+    //             ],
+    //         },
+    //         {
+    //             homeId: "home_003",
+    //             homeName: "山田次郎宅",
+    //             residentName: "山田 次郎",
+    //             address: "東京都練馬区石神井3-3-3",
+    //             temperature: 23.2,
+    //             humidity: 48,
+    //             doorStatus: "closed",
+    //             lastActivity: "1時間前",
+    //             fallDetected: true,
+    //             alerts: [
+    //                 {
+    //                     type: "fall",
+    //                     message: "転倒の可能性が検知されました（10秒以上継続）",
+    //                     timestamp: "30分前",
+    //                     severity: "high",
+    //                 },
+    //             ],
+    //             sensors: [
+    //                 {
+    //                     sensorId: "MT10_003",
+    //                     type: "MT10",
+    //                     status: "active",
+    //                     lastSeen: "1分前",
+    //                 },
+    //                 {
+    //                     sensorId: "MT20_003",
+    //                     type: "MT20",
+    //                     status: "active",
+    //                     lastSeen: "30秒前",
+    //                 },
+    //                 {
+    //                     sensorId: "MT30_003",
+    //                     type: "MT30",
+    //                     status: "active",
+    //                     lastSeen: "3分前",
+    //                 },
+    //                 {
+    //                     sensorId: "MV23_003",
+    //                     type: "MV23",
+    //                     status: "active",
+    //                     lastSeen: "10秒前",
+    //                 },
+    //             ],
+    //         },
+    //     ];
+
+    //     setHomes(mockHomes);
+    //     const echo = ensureEcho();
+    //     setActiveAlerts(
+    //         mockHomes.reduce((acc, home) => acc + home.alerts.length, 0)
+    //     );
+
+    //     // WebSocket接続のシミュレーション
+    //     setWsConnected(true);
+
+    //     // 10秒ごとのデータ更新（WebSocketシミュレーション）
+    //     const interval = setInterval(() => {
+    //         setHomes((prevHomes) =>
+    //             prevHomes.map((home) => ({
+    //                 ...home,
+    //                 temperature: home.temperature + (Math.random() - 0.5) * 0.5,
+    //                 humidity: home.humidity + (Math.random() - 0.5) * 2,
+    //                 // 転倒検知の誤検知対策：10秒以上継続した場合のみアラート
+    //                 fallDetected:
+    //                     Math.random() > 0.98 ? true : home.fallDetected,
+    //             }))
+    //         );
+    //     }, 10000);
+
+    //     return () => clearInterval(interval);
+    // }, []);
 
     const handleLogout = async () => {
     if (loggingOut) return;

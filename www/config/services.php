@@ -31,4 +31,11 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'meraki' => [
+    'key'        => env('MERAKI_API_KEY'),
+    'org_id'     => env('MERAKI_ORG_ID'),
+    'network_id' => env('MERAKI_NETWORK_ID'),
+    'base'       => env('MERAKI_BASE', 'https://api.meraki.com/api/v1'),
+    ],
+
 ];

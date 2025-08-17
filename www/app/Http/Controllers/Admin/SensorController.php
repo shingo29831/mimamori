@@ -44,7 +44,7 @@ class SensorController extends Controller
         return response()->json(['sensors' => $rows]);
     }
 
-     public function store(Request $request)
+    public function store(Request $request)
     {
         $data = $request->validate([
             'sensorName' => ['required','string','max:255'],

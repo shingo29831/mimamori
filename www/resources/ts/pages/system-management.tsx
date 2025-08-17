@@ -84,6 +84,10 @@ interface Relationship {
     createdAt: string;
 }
 
+const nonEmpty = (v: unknown): v is string =>
+  typeof v === "string" && v.trim().length > 0;
+
+
 function Empty({ children }: { children: React.ReactNode }) {
   return <p className="text-sm text-gray-500 py-6 text-center">{children}</p>
 }
@@ -167,7 +171,7 @@ const mapSensor = (r: any): SensorData => ({
   homeName: r.home_name ?? r.homeName,
   roomName: r.room_name ?? r.roomName,
   status: r.status,
-  lastActive: r.last_active ?? r.lastActive ?? r.updated_at ?? r.updatedAt,
+  lastActive: r.last_active ?? r.lastActive
 })
 
 const mapRel = (r: any): Relationship => ({
@@ -235,6 +239,8 @@ const Page = () => {
     const [isSensorDialogOpen, setIsSensorDialogOpen] = useState(false);
     const [formErrors, setFormErrors] = useState<{ password?: string }>({})
     const [selectedUnregSensorId, setSelectedUnregSensorId] = useState("");
+
+    
 
     const showMessage = (message: string, isError = false) => {
         console.log(isError ? `Error: ${message}` : message);
@@ -659,6 +665,19 @@ const handleAttachUnregisteredSensor = async () => {
         loadSensors();
         loadRelationships();
     }, []);
+
+    useEffect(() => {
+        console.groupCollapsed("[debug] Select 候補IDチェック");
+
+        users.forEach(u => { if (!nonEmpty(u.userId)) console.warn("empty userId", u); });
+        residents.forEach(r => { if (!nonEmpty(r.residentId)) console.warn("empty residentId", r); });
+        homes.forEach(h => { if (!nonEmpty(h.homeId)) console.warn("empty homeId", h); });
+        sensors.forEach(s => { if (!nonEmpty(s.sensorId)) console.warn("empty sensorId (registered)", s); });
+        unregisteredSensors.forEach(s => { if (!nonEmpty(s.sensorId)) console.warn("empty sensorId (unregistered)", s); });
+
+        console.groupEnd();
+    }, [users, residents, homes, sensors, unregisteredSensors]);
+
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -1372,7 +1391,9 @@ const handleAttachUnregisteredSensor = async () => {
                                                 <SelectValue placeholder="利用者を選択" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {users.map((user) => (
+                                                {users
+                                                .filter(u => nonEmpty(u.userId))
+                                                .map((user) => (
                                                     <SelectItem
                                                         key={user.userId}
                                                         value={user.userId}
@@ -1398,7 +1419,9 @@ const handleAttachUnregisteredSensor = async () => {
                                                 <SelectValue placeholder="高齢者を選択" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {residents.map((resident) => (
+                                                {residents
+                                                .filter(r => nonEmpty(r.residentId))
+                                                .map((resident) => (
                                                     <SelectItem
                                                         key={
                                                             resident.residentId
@@ -1527,7 +1550,9 @@ const handleAttachUnregisteredSensor = async () => {
                                                 <SelectValue placeholder="高齢者を選択" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {residents.map((resident) => (
+                                                {residents
+                                                .filter(r => nonEmpty(r.residentId))
+                                                .map((resident) => (
                                                     <SelectItem
                                                         key={
                                                             resident.residentId
@@ -1557,7 +1582,9 @@ const handleAttachUnregisteredSensor = async () => {
                                                 <SelectValue placeholder="高齢者宅を選択" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {homes.map((home) => (
+                                                {homes
+                                                .filter(h => nonEmpty(h.homeId))
+                                                .map((home) => (
                                                     <SelectItem
                                                         key={home.homeId}
                                                         value={home.homeId}
@@ -1640,12 +1667,14 @@ const handleAttachUnregisteredSensor = async () => {
                                                 <SelectValue placeholder="センサーを選択" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {unregisteredSensors.map(
-                                                    (sensor) => (
-                                                        <SelectItem
-                                                            key={
-                                                                sensor.sensorId
-                                                            }
+                                                {unregisteredSensors
+                                                    .filter(sensor => nonEmpty(sensor.sensorId))
+                                                    .map(
+                                                        (sensor) => (
+                                                            <SelectItem
+                                                                key={
+                                                                    sensor.sensorId
+                                                                }
                                                             value={
                                                                 sensor.sensorId
                                                             }
@@ -1672,12 +1701,14 @@ const handleAttachUnregisteredSensor = async () => {
                                                 <SelectValue placeholder="高齢者宅を選択" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {homes.map((home) => (
-                                                    <SelectItem
-                                                        key={home.homeId}
-                                                        value={home.homeId}
-                                                    >
-                                                        {home.homeName}
+                                                {homes
+                                                    .filter(h => nonEmpty(h.homeId))
+                                                    .map((home) => (
+                                                        <SelectItem
+                                                            key={home.homeId}
+                                                            value={home.homeId}
+                                                        >
+                                                            {home.homeName}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
@@ -1778,11 +1809,13 @@ const handleAttachUnregisteredSensor = async () => {
                                 <SelectValue placeholder="未登録センサーを選択（ID表示）" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                {unregisteredSensors.map((s) => (
-                                    <SelectItem key={s.sensorId} value={s.sensorId}>
-                                         ID: {s.sensorId} / Type: {s.sensorType}
-                                    </SelectItem>
-                                ))}
+                                {unregisteredSensors
+                                    .filter(sensor => nonEmpty(sensor.sensorId))
+                                    .map((s) => (
+                                        <SelectItem key={s.sensorId} value={s.sensorId}>
+                                             ID: {s.sensorId} / Type: {s.sensorType}
+                                        </SelectItem>
+                                    ))}
                                 </SelectContent>
                             </Select>
                             )}
@@ -1798,11 +1831,13 @@ const handleAttachUnregisteredSensor = async () => {
                                 <SelectValue placeholder="高齢者宅を選択" />
                             </SelectTrigger>
                             <SelectContent>
-                                {homes.map((home) => (
-                                <SelectItem key={home.homeId} value={home.homeId}>
-                                    {home.homeName}
-                                </SelectItem>
-                                ))}
+                                {homes
+                                    .filter(home => nonEmpty(home.homeId))
+                                    .map((home) => (
+                                        <SelectItem key={home.homeId} value={home.homeId}>
+                                            {home.homeName}
+                                        </SelectItem>
+                                    ))}
                             </SelectContent>
                             </Select>
                         </div>

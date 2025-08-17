@@ -80,7 +80,7 @@ class RelationshipController extends Controller
                     DB::raw("JSON_UNQUOTE(JSON_EXTRACT(Sensors.calibration_meta, '$.room_name')) as room_name"),
                     DB::raw('NULL as relationship'),
                     // created_at が無い場合は last_seen / updated_at 等に差し替え
-                    DB::raw('COALESCE(Sensors.updated_at, Sensors.created_at) as created_at'),
+                    'Sensors.created_at as created_at',
                 ]);
             $out = $out->concat($hs);
         }

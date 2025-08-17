@@ -7,6 +7,8 @@ use App\Http\Controllers\Admin\ResidentController;
 use App\Http\Controllers\Admin\HomeController;
 use App\Http\Controllers\Admin\SensorController;
 use App\Http\Controllers\Admin\RelationshipController;
+use App\Http\Controllers\Admin\SensorReadingController;
+
 
 Route::post('/login',  [AuthController::class, 'login']);
 
@@ -38,4 +40,17 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
     Route::get('relationships',    [RelationshipController::class,'index']);
     Route::post('relationships',   [RelationshipController::class,'store']);
     Route::delete('relationships', [RelationshipController::class,'destroy']);
+
+    Route::get('guardians', [RelationshipController::class,'guardians']);
+
+    Route::get('sensors/{sensorId}/metrics/{metric}/first', [SensorReadingController::class, 'earliest']);
 });
+
+if (app()->environment('local')) {
+    Route::post('/admin/users/open-store', [UserController::class, 'store'])
+        ->withoutMiddleware('auth:sanctum')
+        ->middleware('throttle:5,1'); // 1分に5回まで
+}
+
+// 一時的にトークン無しで叩きたい時（終わったら必ず消してください）
+Route::get('admin/sensors/{sensorId}/metrics/{metric}/first-open', [SensorReadingController::class, 'earliestOpen']);

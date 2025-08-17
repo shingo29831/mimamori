@@ -45,6 +45,7 @@ class UserController extends Controller
         $user->email         = $validated['email'];
         $user->role          = $validated['role'];
         $user->password_hash = Hash::make($validated['password']); // ← カラムは password_hash
+        // $user->password_hash = $validated['password'];
         $user->is_active     = true;
 
         $user->save();
