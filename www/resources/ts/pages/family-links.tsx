@@ -113,11 +113,133 @@ interface NewResidentHomeLinkData {
     moveInDate: string;
 }
 
+// === API ===
+const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
+const authHeaders = () => {
+  const t = localStorage.getItem("token");
+  return { Accept: "application/json", ...(t ? { Authorization: `Bearer ${t}` } : {}) };
+};
+async function apiFetch<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers: { ...authHeaders(), ...init.headers } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data?.message || data?.error || `Request failed: ${res.status} ${res.statusText}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+// === サーバーレスポンス → 画面用に整形
+const mapUser = (r: any) => ({
+  userId: r.user_id ?? r.userId,
+  userName: r.user_name ?? r.userName,
+  email: r.email ?? "",
+  role: r.role ?? "family",
+  isActive: r.is_active ?? r.isActive ?? true,
+});
+
+const mapResident = (r: any): Resident => {
+  // API が nested な linked_families を返す場合にも対応して安全に整形
+  const rawLF = r.linked_families ?? r.linkedFamilies;
+  const linkedFamilies = Array.isArray(rawLF)
+    ? rawLF.map((lf: any) => ({
+        userId: lf.user_id ?? lf.userId ?? "",
+        userName: lf.user_name ?? lf.userName ?? "",
+        relationship: lf.relationship ?? "",
+        linkedDate:
+          lf.linked_date ??
+          lf.linkedDate ??
+          lf.created_at ??
+          lf.createdAt ??
+          "",
+      }))
+    : [];
+
+  return {
+    residentId: r.resident_id ?? r.residentId ?? "",
+    residentName: r.resident_name ?? r.residentName ?? "",
+    homeId: r.home_id ?? r.homeId ?? "",
+    homeName: r.home_name ?? r.homeName ?? "",
+    address: r.address ?? "",
+    dateOfBirth: r.date_of_birth ?? r.dateOfBirth ?? "",
+    linkedFamilies, // ← ここで必ず配列を入れる
+  };
+};
+
+const mapHome = (r: any) => ({
+  homeId: r.home_id ?? r.homeId,
+  homeName: r.home_name ?? r.homeName,
+  address: r.address ?? "",
+});
+
+const mapFamilyUser = (r: any): FamilyUser => {
+  const rawLR = r.linked_residents ?? r.linkedResidents;
+  const linkedResidents = Array.isArray(rawLR)
+    ? rawLR.map((x: any) => ({
+        residentId: x.resident_id ?? x.residentId ?? "",
+        residentName: x.resident_name ?? x.residentName ?? "",
+        homeId: x.home_id ?? x.homeId ?? "",
+        homeName: x.home_name ?? x.homeName ?? "",
+        relationship: x.relationship ?? "",
+        linkedDate:
+          x.linked_date ?? x.linkedDate ?? x.created_at ?? x.createdAt ?? "",
+      }))
+    : [];
+
+  return {
+    userId: r.user_id ?? r.userId ?? "",
+    userName: r.user_name ?? r.userName ?? "",
+    email: r.email ?? "",
+    isActive: r.is_active ?? r.isActive ?? true,
+    linkedResidents,
+  };
+};
+
+
+// 関係: ユーザ↔高齢者
+type RelUserResident = {
+  id: string; type: "user-resident"; userId: string; residentId: string;
+  relationship?: string; createdAt?: string;
+};
+const mapRelUserResident = (r: any): RelUserResident => ({
+  id: String(r.id),
+  type: "user-resident",
+  userId: r.user_id ?? r.userId ?? r.from_id,     // サーバのキー名ゆらぎに対応
+  residentId: r.resident_id ?? r.residentId ?? r.to_id,
+  relationship: r.relationship,
+  createdAt: r.created_at ?? r.createdAt,
+});
+
+// 関係: 高齢者↔宅（最新の在住を採用）
+type RelResidentHome = {
+  id: string; type: "resident-home"; residentId: string; homeId: string;
+  assignedFrom?: string; assignedTo?: string;
+};
+const mapRelResidentHome = (r: any): RelResidentHome => ({
+  id: String(r.id),
+  type: "resident-home",
+  residentId: r.resident_id ?? r.residentId ?? r.from_id,
+  homeId: r.home_id ?? r.homeId ?? r.to_id,
+  assignedFrom: r.assigned_from ?? r.assignedFrom,
+  assignedTo: r.assigned_to ?? r.assignedTo,
+});
+
+// 表示ラベル（APIが son/daughter... を返すケースに対応）
+const relLabel = (v?: string) => {
+  switch ((v ?? "").toLowerCase()) {
+    case "son": return "息子";
+    case "daughter": return "娘";
+    case "spouse": return "配偶者";
+    case "grandchild": return "孫";
+    case "sibling": return "兄弟姉妹";
+    case "other": return "その他";
+    default: return v || "未設定";
+  }
+};
+const lc = (x: any) => (x ?? "").toString().toLowerCase();
+
+
 export default function LinkManagementPage() {
-    const [familyUsers, setFamilyUsers] = useState<FamilyUser[]>([]);
-    const [residents, setResidents] = useState<Resident[]>([]);
-    const [sensorLinks, setSensorLinks] = useState<SensorLink[]>([]);
-    const [homes, setHomes] = useState<HomeData[]>([]);
     const [availableSensors, setAvailableSensors] = useState<
         Array<{
             sensorId: string;
@@ -155,250 +277,175 @@ export default function LinkManagementPage() {
             moveInDate: new Date().toISOString().split("T")[0],
         });
 
-    const [searchTerm, setSearchTerm] = useState("");
 
-    useEffect(() => {
-        // モック家族ユーザーデータ
-        const mockFamilyUsers: FamilyUser[] = [
-            {
-                userId: "family_001",
-                userName: "田中 太郎",
-                email: "tanaka@email.com",
-                isActive: true,
-                linkedResidents: [
-                    {
-                        residentId: "res_001",
-                        residentName: "田中 花子",
-                        homeId: "home_001",
-                        homeName: "田中花子宅",
-                        relationship: "息子",
-                        linkedDate: "2024-01-01",
-                    },
-                ],
-            },
-            {
-                userId: "family_002",
-                userName: "佐藤 花子",
-                email: "sato@email.com",
-                isActive: true,
-                linkedResidents: [
-                    {
-                        residentId: "res_002",
-                        residentName: "佐藤 太郎",
-                        homeId: "home_002",
-                        homeName: "佐藤太郎宅",
-                        relationship: "娘",
-                        linkedDate: "2024-01-05",
-                    },
-                ],
-            },
-            {
-                userId: "family_003",
-                userName: "山田 美子",
-                email: "yamada@email.com",
-                isActive: true,
-                linkedResidents: [
-                    {
-                        residentId: "res_003",
-                        residentName: "山田 次郎",
-                        homeId: "home_003",
-                        homeName: "山田次郎宅",
-                        relationship: "娘",
-                        linkedDate: "2024-01-10",
-                    },
-                ],
-            },
-            {
-                userId: "family_004",
-                userName: "鈴木 一郎",
-                email: "suzuki@email.com",
-                isActive: false,
-                linkedResidents: [],
-            },
-        ];
+    // state は既存を再利用
+const [familyUsers, setFamilyUsers] = useState<FamilyUser[]>([]);
+const [residents, setResidents] = useState<Resident[]>([]);
+const [sensorLinks, setSensorLinks] = useState<SensorLink[]>([]); // ←この画面では使わないなら残してOK
+const [homes, setHomes] = useState<HomeData[]>([]);
+const [searchTerm, setSearchTerm] = useState("");
 
-        // モック高齢者データ
-        const mockResidents: Resident[] = [
-            {
-                residentId: "res_001",
-                residentName: "田中 花子",
-                homeId: "home_001",
-                homeName: "田中花子宅",
-                address: "東京都世田谷区桜丘1-1-1",
-                dateOfBirth: "1935-03-15",
-                linkedFamilies: [
-                    {
-                        userId: "family_001",
-                        userName: "田中 太郎",
-                        relationship: "息子",
-                        linkedDate: "2024-01-01",
-                    },
-                ],
-            },
-            {
-                residentId: "res_002",
-                residentName: "佐藤 太郎",
-                homeId: "home_002",
-                homeName: "佐藤太郎宅",
-                address: "東京都杉並区高円寺2-2-2",
-                dateOfBirth: "1940-07-22",
-                linkedFamilies: [
-                    {
-                        userId: "family_002",
-                        userName: "佐藤 花子",
-                        relationship: "娘",
-                        linkedDate: "2024-01-05",
-                    },
-                ],
-            },
-            {
-                residentId: "res_003",
-                residentName: "山田 次郎",
-                homeId: "home_003",
-                homeName: "山田次郎宅",
-                address: "東京都練馬区石神井3-3-3",
-                dateOfBirth: "1938-11-08",
-                linkedFamilies: [
-                    {
-                        userId: "family_003",
-                        userName: "山田 美子",
-                        relationship: "娘",
-                        linkedDate: "2024-01-10",
-                    },
-                ],
-            },
-            {
-                residentId: "res_004",
-                residentName: "鈴木 美代子",
-                homeId: "home_004",
-                homeName: "鈴木美代子宅",
-                address: "東京都中野区中野4-4-4",
-                dateOfBirth: "1942-01-30",
-                linkedFamilies: [],
-            },
-        ];
+// 追加: 生データ用
+const [allUsersRaw, setAllUsersRaw] = useState<any[]>([]);
+const [relsUserResident, setRelsUserResident] = useState<RelUserResident[]>([]);
+const [relsResidentHome, setRelsResidentHome] = useState<RelResidentHome[]>([]);
 
-        // モックセンサー紐づけデータ
-        const mockSensorLinks: SensorLink[] = [
-            {
-                sensorId: "MT10_001",
-                sensorName: "田中宅リビング温湿度センサー",
-                sensorType: "MT10",
-                serialNumber: "SN001MT10001",
-                homeId: "home_001",
-                homeName: "田中花子宅",
-                roomName: "リビング",
-                linkedDate: "2024-01-01",
-                status: "active",
-            },
-            {
-                sensorId: "MT20_001",
-                sensorName: "田中宅玄関ドアセンサー",
-                sensorType: "MT20",
-                serialNumber: "SN002MT20001",
-                homeId: "home_001",
-                homeName: "田中花子宅",
-                roomName: "玄関",
-                linkedDate: "2024-01-01",
-                status: "active",
-            },
-            {
-                sensorId: "MV23_001",
-                sensorName: "田中宅リビングカメラセンサー",
-                sensorType: "MV23",
-                serialNumber: "SN004MV23001",
-                homeId: "home_001",
-                homeName: "田中花子宅",
-                roomName: "リビング",
-                linkedDate: "2024-01-01",
-                status: "active",
-            },
-            {
-                sensorId: "MT10_002",
-                sensorName: "佐藤宅リビング温湿度センサー",
-                sensorType: "MT10",
-                serialNumber: "SN005MT10002",
-                homeId: "home_002",
-                homeName: "佐藤太郎宅",
-                roomName: "リビング",
-                linkedDate: "2024-01-05",
-                status: "active",
-            },
-        ];
+// 宅マップ/居住マップを作成
+const buildFamilyView = (usersRaw: any[], residentsArr: Resident[], homesArr: HomeData[],
+                         urr: RelUserResident[], rrh: RelResidentHome[]) => {
+  const users = usersRaw.map(mapUser);
+  const familyOnly = users.filter(u => u.role === "family");
 
-        // モック高齢者宅データ
-        const mockHomes: HomeData[] = [
-            {
-                homeId: "home_001",
-                homeName: "田中花子宅",
-                address: "東京都世田谷区桜丘1-1-1",
-            },
-            {
-                homeId: "home_002",
-                homeName: "佐藤太郎宅",
-                address: "東京都杉並区高円寺2-2-2",
-            },
-            {
-                homeId: "home_003",
-                homeName: "山田次郎宅",
-                address: "東京都練馬区石神井3-3-3",
-            },
-            {
-                homeId: "home_004",
-                homeName: "鈴木美代子宅",
-                address: "東京都中野区中野4-4-4",
-            },
-        ];
+  const homesById = new Map(homesArr.map(h => [h.homeId, h]));
+  const residentsById = new Map(residentsArr.map(r => [r.residentId, r]));
 
-        // モック利用可能センサー（未配置）
-        const mockAvailableSensors = [
-            {
-                sensorId: "MT10_004",
-                sensorName: "未配置温湿度センサー1",
-                sensorType: "MT10" as const,
-                serialNumber: "SN011MT10004",
-            },
-            {
-                sensorId: "MT20_004",
-                sensorName: "未配置ドアセンサー1",
-                sensorType: "MT20" as const,
-                serialNumber: "SN012MT20004",
-            },
-            {
-                sensorId: "MT30_004",
-                sensorName: "未配置モーションセンサー1",
-                sensorType: "MT30" as const,
-                serialNumber: "SN013MT30004",
-            },
-        ];
+  // residentId → 現在（または最新）の homeId を引けるように
+  const currentHomeByResident = new Map<string, RelResidentHome>();
+  rrh.forEach(rel => {
+    const prev = currentHomeByResident.get(rel.residentId);
+    // assignedTo が NULL/空のものを優先。両方空なら assignedFrom が新しい方を採用。
+    const isCurrent = !rel.assignedTo;
+    if (!prev) {
+      currentHomeByResident.set(rel.residentId, rel);
+    } else {
+      const prevIsCurrent = !prev.assignedTo;
+      if (isCurrent && !prevIsCurrent) {
+        currentHomeByResident.set(rel.residentId, rel);
+      } else if ((rel.assignedFrom ?? "") > (prev.assignedFrom ?? "")) {
+        currentHomeByResident.set(rel.residentId, rel);
+      }
+    }
+  });
 
-        setFamilyUsers(mockFamilyUsers);
-        setResidents(mockResidents);
-        setSensorLinks(mockSensorLinks);
-        setHomes(mockHomes);
-        setAvailableSensors(mockAvailableSensors);
-    }, []);
+  const familyUsersView: FamilyUser[] = familyOnly.map(u => {
+    const links = urr.filter(x => x.userId === u.userId);
+    const linkedResidents = links.map(l => {
+      const res = residentsById.get(l.residentId);
+      const rh = currentHomeByResident.get(l.residentId);
+      const home = rh ? homesById.get(rh.homeId) : (res?.homeId ? homesById.get(res.homeId) : undefined);
+      return {
+        residentId: l.residentId,
+        residentName: res?.residentName ?? "(名称未設定)",
+        homeId: home?.homeId ?? "",
+        homeName: home?.homeName ?? "",
+        relationship: relLabel(l.relationship),
+        linkedDate: l.createdAt ?? "",
+      };
+    });
+    return {
+      userId: u.userId,
+      userName: u.userName,
+      email: u.email,
+      isActive: u.isActive,
+      linkedResidents,
+    };
+  });
 
-    const handleCreateFamilyLink = () => {
-        if (
-            !newFamilyLinkData.familyUserId ||
-            !newFamilyLinkData.residentId ||
-            !newFamilyLinkData.relationship
-        ) {
+  return familyUsersView;
+};
+
+// 実データをロード
+useEffect(() => {
+  (async () => {
+    try {
+      // 可能なら types をまとめて取得（なければ個別GETでもOK）
+      const [{ users }, { residents: resArr }, { homes: homesArr }, { relationships }] =
+        await Promise.all([
+          apiFetch<{ users: any[] }>("/api/admin/users"),
+          apiFetch<{ residents: any[] }>("/api/admin/residents"),
+          apiFetch<{ homes: any[] }>("/api/admin/homes"),
+          apiFetch<{ relationships: any[] }>("/api/admin/relationships?types=user-resident,resident-home"),
+        ]);
+
+      const urr = (relationships || [])
+        .filter((r: any) => (r.type ?? r.relation_type) === "user-resident")
+        .map(mapRelUserResident);
+
+      const rrh = (relationships || [])
+        .filter((r: any) => (r.type ?? r.relation_type) === "resident-home")
+        .map(mapRelResidentHome);
+
+      const resMapped = (resArr || []).map(mapResident);
+      const homesMapped = (homesArr || []).map(mapHome);
+
+      setAllUsersRaw(users || []);
+      setResidents(resMapped);
+      setHomes(homesMapped);
+      setRelsUserResident(urr);
+      setRelsResidentHome(rrh);
+
+      // 家族ユーザーごとの紐づけ一覧を構築
+      setFamilyUsers(buildFamilyView(users || [], resMapped, homesMapped, urr, rrh));
+    } catch (e) {
+      console.error("ロード失敗:", e);
+    }
+  })();
+}, []);
+
+    async function reloadFamilyView() {
+        const { relationships } = await apiFetch<{ relationships: any[] }>(
+            "/api/admin/relationships?types=user-resident,resident-home"
+        );
+
+        const urr = (relationships || [])
+            .filter((r: any) => (r.type ?? r.relation_type) === "user-resident")
+            .map(mapRelUserResident);
+
+        const rrh = (relationships || [])
+            .filter((r: any) => (r.type ?? r.relation_type) === "resident-home")
+            .map(mapRelResidentHome);
+
+        setRelsUserResident(urr);
+        setRelsResidentHome(rrh);
+
+        // 既存の users/residents/homes の state を使って再構成
+        setFamilyUsers(buildFamilyView(allUsersRaw, residents, homes, urr, rrh));
+    }
+
+        // ▼ 追加：失敗したら次候補を試すユーティリティ
+    async function tryDeleteSequential(urls: string[]) {
+        let lastErr: any;
+        for (const u of urls) {
+            try {
+            await apiFetch(u, { method: "DELETE" });
+            return; // 成功
+            } catch (e) {
+            lastErr = e;
+            }
+        }
+        throw lastErr ?? new Error("DELETE failed");
+    }
+
+
+
+    const handleCreateFamilyLink = async () => {
+        const { familyUserId, residentId, relationship } = newFamilyLinkData;
+        if (!familyUserId || !residentId || !relationship) {
             alert("すべての項目を入力してください");
             return;
         }
+        try {
+            await apiFetch("/api/admin/relationships", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                type: "user-resident",
+                userId: familyUserId,
+                residentId,
+                relationship,       // 日本語のままでも可
+            }),
+            });
 
-        console.log("新しい家族紐づけを作成:", newFamilyLinkData);
-        alert("家族の紐づけが作成されました");
+            await reloadFamilyView();
 
-        setIsFamilyLinkDialogOpen(false);
-        setNewFamilyLinkData({
-            familyUserId: "",
-            residentId: "",
-            relationship: "",
-        });
+            setIsFamilyLinkDialogOpen(false);
+            setNewFamilyLinkData({ familyUserId: "", residentId: "", relationship: "" });
+        } catch (e:any) {
+            alert(e?.message ?? "登録に失敗しました");
+        }
     };
+
+
 
     const handleCreateSensorLink = () => {
         if (
@@ -442,12 +489,66 @@ export default function LinkManagementPage() {
         });
     };
 
-    const handleDeleteLink = (type: string, id1: string, id2: string) => {
-        if (confirm("この紐づけを削除してもよろしいですか？")) {
-            console.log("紐づけを削除:", { type, id1, id2 });
-            alert("紐づけが削除されました");
+    const handleDeleteLink = async (type: string, id1: string, id2: string) => {
+        if (!confirm("この紐づけを削除してもよろしいですか？")) return;
+
+        try {
+            if (type === "family") {
+        // userId=id1, residentId=id2 に一致する関係を state から探す
+        const hit = relsUserResident.find(
+            (r) => r.userId === id1 && r.residentId === id2
+        );
+        const urls = hit
+            ? [
+                // まず relationships/:id を試す（作成と同じ資源名で整合）
+                `/api/admin/relationships/${encodeURIComponent(hit.id)}`,
+                // バックエンドが guardians/:id の場合のフォールバック
+                `/api/admin/guardians/${encodeURIComponent(hit.id)}`,
+            ]
+            : [
+                // id が取れなかったときの最終手段（既存実装）
+                `/api/admin/guardians?userId=${encodeURIComponent(id1)}&residentId=${encodeURIComponent(id2)}`,
+            ];
+        await tryDeleteSequential(urls);
+        await reloadFamilyView();
+        alert("紐づけが削除されました");
+        return;
         }
+
+        if (type === "resident-home") {
+        // residentId=id1, homeId=id2 の関係を探す
+        const hit = relsResidentHome.find(
+            (r) => r.residentId === id1 && r.homeId === id2
+        );
+        if (!hit) throw new Error("対象の居住関係が見つかりませんでした");
+        await tryDeleteSequential([
+            `/api/admin/relationships/${encodeURIComponent(hit.id)}`,
+            // バックエンドが別資源名の場合の保険
+            `/api/admin/resident-homes/${encodeURIComponent(hit.id)}`,
+        ]);
+        await reloadFamilyView();
+        alert("紐づけが削除されました");
+        return;
+        }
+
+        if (type === "sensor") {
+        // センサー紐づけのAPIは環境依存。代表的な2パターンを順に試す。
+        await tryDeleteSequential([
+            // クエリ指定型
+            `/api/admin/sensor-links?sensorId=${encodeURIComponent(id1)}&homeId=${encodeURIComponent(id2)}`,
+            // リソース型（例）
+            `/api/admin/homes/${encodeURIComponent(id2)}/sensors/${encodeURIComponent(id1)}`,
+        ]);
+        // 必要ならセンサー一覧の再取得をここで
+        // await reloadSensors();
+        alert("紐づけが削除されました");
+        return;
+        }
+            } catch (e: any) {
+                alert(`削除に失敗しました: ${e?.message ?? e}`);
+            }
     };
+
 
     const getSensorIcon = (type: string) => {
         switch (type) {
@@ -481,22 +582,9 @@ export default function LinkManagementPage() {
 
     const filteredFamilyUsers = familyUsers.filter(
         (user) =>
-            user.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            user.linkedResidents.some((resident) =>
-                resident.residentName
-                    .toLowerCase()
-                    .includes(searchTerm.toLowerCase())
-            )
-    );
-
-    const filteredResidents = residents.filter(
-        (resident) =>
-            resident.residentName
-                .toLowerCase()
-                .includes(searchTerm.toLowerCase()) ||
-            resident.homeId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            resident.homeName.toLowerCase().includes(searchTerm.toLowerCase())
+        lc(user.userName).includes(lc(searchTerm)) ||
+        lc(user.email).includes(lc(searchTerm)) ||
+        user.linkedResidents.some((r) => lc(r.residentName).includes(lc(searchTerm)))
     );
 
     const filteredSensorLinks = sensorLinks.filter(
@@ -675,7 +763,7 @@ export default function LinkManagementPage() {
                                                     })
                                                 }
                                             >
-                                                <SelectTrigger>
+                                                <SelectTrigger className="h-fit min-h-12">
                                                     <SelectValue placeholder="高齢者を選択" />
                                                 </SelectTrigger>
                                                 <SelectContent>
@@ -692,6 +780,12 @@ export default function LinkManagementPage() {
                                                                 <div className="flex items-center gap-2">
                                                                     <Home className="h-4 w-4" />
                                                                     <div>
+                                                                        <div className="font-medium">
+                                                                            ID :{" "}
+                                                                            {
+                                                                                resident.residentId
+                                                                            }
+                                                                        </div>
                                                                         <div className="font-medium">
                                                                             {
                                                                                 resident.residentName
@@ -791,18 +885,10 @@ export default function LinkManagementPage() {
                                                     <User className="h-5 w-5" />
                                                     {familyUser.userName}
                                                 </CardTitle>
-                                                <CardDescription>
-                                                    <div className="space-y-1">
-                                                        <div>
-                                                            ユーザーID:{" "}
-                                                            {familyUser.userId}
-                                                        </div>
-                                                        <div>
-                                                            メール:{" "}
-                                                            {familyUser.email}
-                                                        </div>
-                                                    </div>
-                                                </CardDescription>
+                                                <div className="text-sm text-muted-foreground space-y-1">
+                                                    <div>ユーザーID: {familyUser.userId}</div>
+                                                    <div>メール: {familyUser.email}</div>
+                                                </div>
                                             </div>
                                             <Badge
                                                 variant={
@@ -1075,18 +1161,10 @@ export default function LinkManagementPage() {
                                                         <Home className="h-5 w-5" />
                                                         {home.homeName}
                                                     </CardTitle>
-                                                    <CardDescription>
-                                                        <div className="space-y-1">
-                                                            <div>
-                                                                宅ID:{" "}
-                                                                {home.homeId}
-                                                            </div>
-                                                            <div>
-                                                                住所:{" "}
-                                                                {home.address}
-                                                            </div>
-                                                        </div>
-                                                    </CardDescription>
+                                                    <div className="text-sm text-muted-foreground space-y-1">
+                                                        <div>宅ID: {home.homeId}</div>
+                                                        <div>住所: {home.address}</div>
+                                                    </div>
                                                 </div>
                                                 <Badge variant="outline">
                                                     {residentsInHome.length}
@@ -1345,26 +1423,11 @@ export default function LinkManagementPage() {
                                                     )}
                                                     {sensor.sensorName}
                                                 </CardTitle>
-                                                <CardDescription>
-                                                    <div className="space-y-1">
-                                                        <div>
-                                                            センサーID:{" "}
-                                                            {sensor.sensorId}
-                                                        </div>
-                                                        <div>
-                                                            シリアル番号:{" "}
-                                                            {
-                                                                sensor.serialNumber
-                                                            }
-                                                        </div>
-                                                        <div>
-                                                            種別:{" "}
-                                                            {getSensorTypeLabel(
-                                                                sensor.sensorType
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </CardDescription>
+                                                <div className="text-sm text-muted-foreground space-y-1">
+                                                    <div>センサーID: {sensor.sensorId}</div>
+                                                    <div>シリアル番号: {sensor.serialNumber}</div>
+                                                    <div>種別: {getSensorTypeLabel(sensor.sensorType)}</div>
+                                                </div>
                                             </div>
                                             <Badge
                                                 variant={

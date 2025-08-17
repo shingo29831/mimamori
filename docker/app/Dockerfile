@@ -16,7 +16,7 @@ RUN apt-get update \
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg
 RUN docker-php-ext-install gd
 RUN docker-php-ext-install bcmath
-RUN docker-php-ext-install pdo_mysql mysqli exif
+RUN docker-php-ext-install pdo pdo_mysql mysqli exif
 RUN cd /usr/bin && curl -s http://getcomposer.org/installer | php && ln -s /usr/bin/composer.phar /usr/bin/composer
 
 RUN pecl install redis \

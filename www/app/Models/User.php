@@ -2,44 +2,44 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Notifications\Notifiable;
+use Illuminate\Foundation\Auth\User as Authenticatable;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, Notifiable;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
-    protected $fillable = [
-        'name',
-        'email',
-        'password',
-    ];
+    // 既存テーブル定義に合わせる
+    protected $table = 'Users';          // 大文字テーブル名に変える
+    protected $primaryKey = 'user_id';   // 文字列PK
+    public $incrementing = false;
+    protected $keyType = 'string';
+    public $timestamps = true;           // created_at / updated_at を使用
 
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var array<int, string>
-     */
+    // Laravelのデフォルト 'password' ではないので注意
     protected $hidden = [
-        'password',
-        'remember_token',
+        'password_hash',
     ];
 
-    /**
-     * The attributes that should be cast.
-     *
-     * @var array<string, string>
-     */
-    protected $casts = [
-        'email_verified_at' => 'datetime',
-        'password' => 'hashed',
+    protected $fillable = [
+        'user_id', 'user_name', 'email', 'password_hash', 'role',
+        'is_active', 'webex_account', 'line_account',
     ];
+
+    // 認証で使う「パスワードの列名」を差し替える（必要なら）
+    public function getAuthPassword()
+    {
+        return $this->password_hash;
+    }
+
+    public function guardians() {
+        return $this->hasMany(Guardian::class, 'user_id', 'user_id');
+    }
+    public function residents() {
+        return $this->belongsToMany(Resident::class, 'guardians', 'user_id', 'resident_id', 'user_id', 'resident_id')
+                    ->withPivot(['relationship','assigned_from','assigned_to'])
+                    ->withTimestamps();
+    }
+
 }

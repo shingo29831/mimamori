@@ -84,6 +84,106 @@ interface Relationship {
     createdAt: string;
 }
 
+const nonEmpty = (v: unknown): v is string =>
+  typeof v === "string" && v.trim().length > 0;
+
+
+function Empty({ children }: { children: React.ReactNode }) {
+  return <p className="text-sm text-gray-500 py-6 text-center">{children}</p>
+}
+
+
+// === API ヘルパ ===
+const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "")
+
+const authHeaders = () => {
+  const token = localStorage.getItem("token")
+  return {
+    Accept: "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }
+}
+
+async function apiFetch<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: { ...authHeaders(), ...init.headers },
+  })
+  const data = await res.json().catch(() => ({}))
+
+  if (!res.ok) {
+    let msg =
+      (data && (data.message || data.error)) ||
+      `Request failed: ${res.status} ${res.statusText}`
+
+    // ← 追加: バリデーションの errors から最初の文言を使う
+    if (data && data.errors) {
+      const first = Object.values(data.errors).flat?.()[0] as string | undefined
+      if (first) msg = first
+    }
+    throw new Error(msg)
+  }
+  return data
+}
+
+
+// === レスポンス → 画面用にマッピング（snake/camel両対応） ===
+const mapUser = (r: any): User => ({
+  userId: r.user_id ?? r.userId,
+  userName: r.user_name ?? r.userName,
+  email: r.email,
+  role: r.role,
+  createdAt: r.created_at ?? r.createdAt,
+})
+
+const mapResident = (r: any): Resident => ({
+  residentId: r.resident_id ?? r.residentId,
+  residentName: r.resident_name ?? r.residentName,
+  birthDate: r.date_of_birth ?? r.birthDate,
+  age: r.age ?? r.age_calc ?? 0,
+  createdAt: r.created_at ?? r.createdAt,
+})
+
+const mapHome = (r: any): HomeData => ({
+  homeId: r.home_id ?? r.homeId,
+  homeName: r.home_name ?? r.homeName,
+  address: r.address,
+  sensorCount: r.sensor_count ?? r.sensorCount ?? 0,
+  createdAt: r.created_at ?? r.createdAt,
+})
+
+const normalizeEmptyId = (v: any) => {
+  if (v == null) return undefined;
+  const s = String(v).trim();
+  const empties = new Set(["", "null", "undefined", "none", "nothing", "(none)"]);
+  return empties.has(s.toLowerCase()) ? undefined : s;
+};
+
+
+const lc = (v: any) => (v ?? "").toString().toLowerCase();
+
+
+const mapSensor = (r: any): SensorData => ({
+  sensorId: r.sensor_id ?? r.sensorId,
+  sensorName: r.sensor_name ?? r.sensorName,
+  sensorType: r.sensor_type ?? r.sensorType,
+  homeId: normalizeEmptyId(r.home_id ?? r.homeId),
+  homeName: r.home_name ?? r.homeName,
+  roomName: r.room_name ?? r.roomName,
+  status: r.status,
+  lastActive: r.last_active ?? r.lastActive
+})
+
+const mapRel = (r: any): Relationship => ({
+  id: String(r.id),
+  type: r.type,
+  fromName: r.from_name ?? r.fromName,
+  toName: r.to_name ?? r.toName,
+  relationship: r.relationship,
+  roomName: r.room_name ?? r.roomName,
+  createdAt: r.created_at ?? r.createdAt,
+})
+
 const Page = () => {
     const navigate = useNavigate(); // ← useRouter の代わり
 
@@ -104,6 +204,7 @@ const Page = () => {
         userName: "",
         email: "",
         role: "family",
+        password: "",
     });
     const [newResident, setNewResident] = useState({
         residentName: "",
@@ -136,6 +237,10 @@ const Page = () => {
     const [isResidentDialogOpen, setIsResidentDialogOpen] = useState(false);
     const [isHomeDialogOpen, setIsHomeDialogOpen] = useState(false);
     const [isSensorDialogOpen, setIsSensorDialogOpen] = useState(false);
+    const [formErrors, setFormErrors] = useState<{ password?: string }>({})
+    const [selectedUnregSensorId, setSelectedUnregSensorId] = useState("");
+
+    
 
     const showMessage = (message: string, isError = false) => {
         console.log(isError ? `Error: ${message}` : message);
@@ -143,315 +248,415 @@ const Page = () => {
 
     const loadUsers = async () => {
         try {
-            const response = await fetch("/api/admin/users");
-            const data = await response.json();
-            if (data.success) setUsers(data.users);
+            const data = await apiFetch<{ success?: boolean; users: any[] }>("/api/admin/users")
+            const arr = (data.users || []).map(mapUser)
+            setUsers(arr)
         } catch (e) {
-            console.error("利用者データの読み込みエラー:", e);
+            console.error("利用者データの読み込みエラー:", e)
         }
-    };
+    }
+
     const loadResidents = async () => {
         try {
-            const response = await fetch("/api/admin/residents");
-            const data = await response.json();
-            if (data.success) setResidents(data.residents);
+            const data = await apiFetch<{ residents: any[] }>("/api/admin/residents")
+            setResidents((data.residents || []).map(mapResident))
         } catch (e) {
-            console.error("高齢者データの読み込みエラー:", e);
+            console.error("高齢者データの読み込みエラー:", e)
         }
-    };
+    }
+
     const loadHomes = async () => {
         try {
-            const response = await fetch("/api/admin/homes");
-            const data = await response.json();
-            if (data.success) setHomes(data.homes);
+            const data = await apiFetch<{ homes: any[] }>("/api/admin/homes")
+            setHomes((data.homes || []).map(mapHome))
         } catch (e) {
-            console.error("高齢者宅データの読み込みエラー:", e);
+            console.error("高齢者宅データの読み込みエラー:", e)
         }
-    };
+    }
+
     const loadSensors = async () => {
         try {
-            const response = await fetch("/api/admin/sensors");
-            const data = await response.json();
-            if (data.success) {
-                setSensors(data.sensors.filter((s: SensorData) => s.homeId));
-                setUnregisteredSensors(
-                    data.sensors.filter((s: SensorData) => !s.homeId)
-                );
-            }
+            const data = await apiFetch<{ sensors: any[] }>("/api/admin/sensors")
+            const all = (data.sensors || []).map(mapSensor)
+            setSensors(all.filter((s) => !!s.homeId))
+            setUnregisteredSensors(all.filter((s) => !s.homeId))
         } catch (e) {
-            console.error("センサーデータの読み込みエラー:", e);
+            console.error("センサーデータの読み込みエラー:", e)
         }
-    };
+    }
+
     const loadRelationships = async () => {
         try {
-            const response = await fetch("/api/admin/relationships");
-            const data = await response.json();
-            if (data.success) setRelationships(data.relationships);
+            const data = await apiFetch<{ relationships: any[] }>("/api/admin/relationships")
+            setRelationships((data.relationships || []).map(mapRel))
         } catch (e) {
-            console.error("紐付けデータの読み込みエラー:", e);
+            console.error("紐付けデータの読み込みエラー:", e)
         }
-    };
+    }
+
 
     const handleCreateUser = async () => {
-        if (!newUser.userName || !newUser.email) {
-            showMessage("氏名とメールアドレスを入力してください", true);
-            return;
+        setFormErrors({})
+
+        if (!newUser.userName || !newUser.email || !newUser.password) {
+            showMessage("氏名・メール・パスワードは必須です", true)
+            return
         }
+        if (newUser.password.length < 8) {
+            const msg = "パスワードは8文字以上で入力してください"
+            setFormErrors({ password: msg })
+            showMessage(msg, true)
+            return
+        }
+
         try {
-            const res = await fetch("/api/admin/users", {
+            const data = await apiFetch<{ success: boolean }>(
+            "/api/admin/users",
+            {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(newUser),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setNewUser({ userName: "", email: "", role: "family" });
-                setIsUserDialogOpen(false);
-                await loadUsers();
-                showMessage("利用者を登録しました");
-            } else {
-                showMessage(data.message || "利用者の登録に失敗しました", true);
             }
-        } catch (e) {
-            console.error("利用者登録エラー:", e);
-            showMessage("利用者の登録に失敗しました", true);
+            )
+            if (data.success) {
+            setNewUser({ userName: "", email: "", role: "family", password: "" })
+            setIsUserDialogOpen(false)
+            await loadUsers()
+            showMessage("利用者を登録しました")
+            } else {
+            showMessage("利用者の登録に失敗しました", true)
+            }
+        } catch (e: any) {
+            const msg = String(e?.message ?? e)
+            // パスワード系のエラーならフィールド下にも表示
+            if (/password/i.test(msg)) setFormErrors({ password: msg })
+            showMessage(msg, true)
         }
-    };
+    }
 
     const handleCreateResident = async () => {
-        if (!newResident.residentName || !newResident.birthDate) {
-            showMessage("氏名と生年月日を入力してください", true);
-            return;
-        }
-        try {
-            const res = await fetch("/api/admin/residents", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(newResident),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setNewResident({ residentName: "", birthDate: "" });
-                setIsResidentDialogOpen(false);
-                await loadResidents();
-                showMessage("高齢者を登録しました");
-            } else {
-                showMessage(data.message || "高齢者の登録に失敗しました", true);
-            }
-        } catch (e) {
-            console.error("高齢者登録エラー:", e);
-            showMessage("高齢者の登録に失敗しました", true);
-        }
-    };
+  if (!newResident.residentName || !newResident.birthDate) {
+    showMessage("氏名と生年月日を入力してください", true);
+    return;
+  }
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      "/api/admin/residents",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newResident),
+      }
+    );
+    if (data.success) {
+      setNewResident({ residentName: "", birthDate: "" });
+      setIsResidentDialogOpen(false);
+      await loadResidents();
+      showMessage("高齢者を登録しました");
+    } else {
+      showMessage(data.message || "高齢者の登録に失敗しました", true);
+    }
+  } catch (e) {
+    console.error("高齢者登録エラー:", e);
+    showMessage("高齢者の登録に失敗しました", true);
+  }
+};
 
-    const handleCreateHome = async () => {
-        if (!newHome.homeName || !newHome.address) {
-            showMessage("宅名と住所を入力してください", true);
-            return;
-        }
-        try {
-            const res = await fetch("/api/admin/homes", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(newHome),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setNewHome({ homeName: "", address: "" });
-                setIsHomeDialogOpen(false);
-                await loadHomes();
-                showMessage("高齢者宅を登録しました");
-            } else {
-                showMessage(
-                    data.message || "高齢者宅の登録に失敗しました",
-                    true
-                );
-            }
-        } catch (e) {
-            console.error("高齢者宅登録エラー:", e);
-            showMessage("高齢者宅の登録に失敗しました", true);
-        }
-    };
+const handleCreateHome = async () => {
+  if (!newHome.homeName || !newHome.address) {
+    showMessage("宅名と住所を入力してください", true);
+    return;
+  }
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      "/api/admin/homes",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newHome),
+      }
+    );
+    if (data.success) {
+      setNewHome({ homeName: "", address: "" });
+      setIsHomeDialogOpen(false);
+      await loadHomes();
+      showMessage("高齢者宅を登録しました");
+    } else {
+      showMessage(data.message || "高齢者宅の登録に失敗しました", true);
+    }
+  } catch (e) {
+    console.error("高齢者宅登録エラー:", e);
+    showMessage("高齢者宅の登録に失敗しました", true);
+  }
+};
 
-    const handleCreateSensor = async () => {
-        if (
-            !newSensor.sensorName ||
-            !newSensor.sensorType ||
-            !newSensor.homeId
-        ) {
-            showMessage("すべての項目を入力してください", true);
-            return;
-        }
-        try {
-            const res = await fetch("/api/admin/sensors", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(newSensor),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setNewSensor({
-                    sensorName: "",
-                    sensorType: "",
-                    homeId: "",
-                    roomName: "",
-                });
-                setIsSensorDialogOpen(false);
-                await loadSensors();
-                showMessage("センサーを登録しました");
-            } else {
-                showMessage(
-                    data.message || "センサーの登録に失敗しました",
-                    true
-                );
-            }
-        } catch (e) {
-            console.error("センサー登録エラー:", e);
-            showMessage("センサーの登録に失敗しました", true);
-        }
-    };
+const handleCreateSensor = async () => {
+  if (!newSensor.sensorName || !newSensor.sensorType || !newSensor.homeId) {
+    showMessage("すべての項目を入力してください", true);
+    return;
+  }
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      "/api/admin/sensors",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newSensor),
+      }
+    );
+    if (data.success) {
+      setNewSensor({ sensorName: "", sensorType: "", homeId: "", roomName: "" });
+      setIsSensorDialogOpen(false);
+      await loadSensors();
+      showMessage("センサーを登録しました");
+    } else {
+      showMessage(data.message || "センサーの登録に失敗しました", true);
+    }
+  } catch (e) {
+    console.error("センサー登録エラー:", e);
+    showMessage("センサーの登録に失敗しました", true);
+  }
+};
 
-    const handleCreateGuardianLink = async () => {
-        if (
-            !newGuardianLink.userId ||
-            !newGuardianLink.residentId ||
-            !newGuardianLink.relationship
-        ) {
-            showMessage("すべての項目を選択してください", true);
-            return;
-        }
-        try {
-            const res = await fetch("/api/admin/relationships", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    type: "user-resident",
-                    ...newGuardianLink,
-                }),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setNewGuardianLink({
-                    userId: "",
-                    residentId: "",
-                    relationship: "",
-                });
-                await loadRelationships();
-                showMessage("利用者と高齢者を紐づけました");
-            } else {
-                showMessage(data.message || "紐付けに失敗しました", true);
-            }
-        } catch (e) {
-            console.error("紐付けエラー:", e);
-            showMessage("紐付けに失敗しました", true);
-        }
-    };
+const handleCreateGuardianLink = async () => {
+  if (!newGuardianLink.userId || !newGuardianLink.residentId || !newGuardianLink.relationship) {
+    showMessage("すべての項目を選択してください", true);
+    return;
+  }
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      "/api/admin/relationships",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "user-resident", ...newGuardianLink }),
+      }
+    );
+    if (data.success) {
+      setNewGuardianLink({ userId: "", residentId: "", relationship: "" });
+      await loadRelationships();
+      showMessage("利用者と高齢者を紐づけました");
+    } else {
+      showMessage(data.message || "紐付けに失敗しました", true);
+    }
+  } catch (e) {
+    console.error("紐付けエラー:", e);
+    showMessage("紐付けに失敗しました", true);
+  }
+};
 
-    const handleCreateResidentHomeLink = async () => {
-        if (!newResidentHomeLink.residentId || !newResidentHomeLink.homeId) {
-            showMessage("高齢者と高齢者宅を選択してください", true);
-            return;
-        }
-        try {
-            const res = await fetch("/api/admin/relationships", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    type: "resident-home",
-                    ...newResidentHomeLink,
-                }),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setNewResidentHomeLink({ residentId: "", homeId: "" });
-                await loadRelationships();
-                showMessage("高齢者と高齢者宅を紐づけました");
-            } else {
-                showMessage(data.message || "紐付けに失敗しました", true);
-            }
-        } catch (e) {
-            console.error("紐付けエラー:", e);
-            showMessage("紐付けに失敗しました", true);
-        }
-    };
+const handleCreateResidentHomeLink = async () => {
+  if (!newResidentHomeLink.residentId || !newResidentHomeLink.homeId) {
+    showMessage("高齢者と高齢者宅を選択してください", true);
+    return;
+  }
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      "/api/admin/relationships",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "resident-home", ...newResidentHomeLink }),
+      }
+    );
+    if (data.success) {
+      setNewResidentHomeLink({ residentId: "", homeId: "" });
+      await loadRelationships();
+      showMessage("高齢者と高齢者宅を紐づけました");
+    } else {
+      showMessage(data.message || "紐付けに失敗しました", true);
+    }
+  } catch (e) {
+    console.error("紐付けエラー:", e);
+    showMessage("紐付けに失敗しました", true);
+  }
+};
 
-    const handleCreateSensorHomeLink = async () => {
-        if (!newSensorHomeLink.sensorId || !newSensorHomeLink.homeId) {
-            showMessage("センサーと高齢者宅を選択してください", true);
-            return;
-        }
-        try {
-            const res = await fetch("/api/admin/relationships", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    type: "home-sensor",
-                    ...newSensorHomeLink,
-                }),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setNewSensorHomeLink({
-                    sensorId: "",
-                    homeId: "",
-                    roomName: "",
-                });
-                await loadSensors();
-                await loadRelationships();
-                showMessage("センサーと高齢者宅を紐づけました");
-            } else {
-                showMessage(data.message || "紐付けに失敗しました", true);
-            }
-        } catch (e) {
-            console.error("紐付けエラー:", e);
-            showMessage("紐付けに失敗しました", true);
-        }
-    };
+const handleCreateSensorHomeLink = async () => {
+  if (!newSensorHomeLink.sensorId || !newSensorHomeLink.homeId) {
+    showMessage("センサーと高齢者宅を選択してください", true);
+    return;
+  }
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      "/api/admin/relationships",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "home-sensor", ...newSensorHomeLink }),
+      }
+    );
+    if (data.success) {
+      setNewSensorHomeLink({ sensorId: "", homeId: "", roomName: "" });
+      await loadSensors();
+      await loadRelationships();
+      showMessage("センサーと高齢者宅を紐づけました");
+    } else {
+      showMessage(data.message || "紐付けに失敗しました", true);
+    }
+  } catch (e) {
+    console.error("紐付けエラー:", e);
+    showMessage("紐付けに失敗しました", true);
+  }
+};
 
-    const handleDeleteRelationship = async (type: string, id: string) => {
-        try {
-            const res = await fetch(
-                `/api/admin/relationships?type=${type}&id=${id}`,
-                {
-                    method: "DELETE",
-                }
-            );
-            const data = await res.json();
-            if (data.success) {
-                await loadRelationships();
-                showMessage("紐付けを削除しました");
-            } else {
-                showMessage(data.message || "削除に失敗しました", true);
-            }
-        } catch (e) {
-            console.error("削除エラー:", e);
-            showMessage("削除に失敗しました", true);
-        }
-    };
+const handleDeleteRelationship = async (type: string, id: string) => {
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      `/api/admin/relationships?type=${type}&id=${id}`,
+      { method: "DELETE" }
+    );
+    if (data.success) {
+      await loadRelationships();
+      showMessage("紐付けを削除しました");
+    } else {
+      showMessage(data.message || "削除に失敗しました", true);
+    }
+  } catch (e) {
+    console.error("削除エラー:", e);
+    showMessage("削除に失敗しました", true);
+  }
+};
+
+const handleDeleteUser = async (userId: string, userName: string) => {
+  if (!confirm(`"${userName}" を削除します。よろしいですか？`)) return
+
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      `/api/admin/users/${userId}`,
+      { method: "DELETE" }
+    )
+
+    if (data.success) {
+      await loadUsers()
+      showMessage("利用者を削除しました")
+    } else {
+      showMessage(data.message || "削除に失敗しました", true)
+    }
+  } catch (e: any) {
+    console.error("利用者削除エラー:", e)
+    // バリデーション/権限制約などの文言をそのまま表示
+    const msg = String(e?.message ?? e) || "削除に失敗しました"
+    showMessage(msg, true)
+  }
+}
+
+const handleDeleteResident = async (residentId: string, residentName: string) => {
+  if (!confirm(`"${residentName}" を削除します。よろしいですか？`)) return
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      `/api/admin/residents/${residentId}`,
+      { method: "DELETE" }
+    )
+    if (data.success) {
+      await loadResidents()
+      showMessage("高齢者を削除しました")
+    } else {
+      showMessage(data.message || "削除に失敗しました", true)
+    }
+  } catch (e: any) {
+    const msg = String(e?.message ?? e) || "削除に失敗しました"
+    showMessage(msg, true)
+  }
+}
+
+const handleDeleteHome = async (homeId: string, homeName: string) => {
+  if (!confirm(`"${homeName}" を削除します。よろしいですか？`)) return
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      `/api/admin/homes/${homeId}`,
+      { method: "DELETE" }
+    )
+    if (data.success) {
+      await loadHomes()
+      showMessage("高齢者宅を削除しました")
+    } else {
+      showMessage(data.message || "削除に失敗しました", true)
+    }
+  } catch (e: any) {
+    const msg = String(e?.message ?? e) || "削除に失敗しました"
+    showMessage(msg, true)
+  }
+}
+
+const handleDeleteSensor = async (sensorId: string, sensorName: string) => {
+  if (!confirm(`センサー "${sensorName}" を削除します。よろしいですか？`)) return
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      `/api/admin/sensors/${sensorId}`,
+      { method: "DELETE" }
+    )
+    if (data.success) {
+      await loadSensors()
+      showMessage("センサーを削除しました")
+    } else {
+      showMessage(data.message || "削除に失敗しました", true)
+    }
+  } catch (e: any) {
+    const msg = String(e?.message ?? e) || "削除に失敗しました"
+    showMessage(msg, true)
+  }
+}
+
+const handleAttachUnregisteredSensor = async () => {
+  if (!selectedUnregSensorId || !newSensor.homeId) {
+    showMessage("未登録センサーと配置先を選択してください", true)
+    return
+  }
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      "/api/admin/relationships",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "home-sensor",
+          sensorId: selectedUnregSensorId,
+          homeId: newSensor.homeId,
+          roomName: newSensor.roomName,
+        }),
+      }
+    )
+    if (data.success) {
+      setSelectedUnregSensorId("")
+      setNewSensor({ sensorName: "", sensorType: "", homeId: "", roomName: "" })
+      setIsSensorDialogOpen(false)
+      await loadSensors()
+      await loadRelationships()
+      showMessage("未登録センサーを配置しました")
+    } else {
+      showMessage(data.message || "登録に失敗しました", true)
+    }
+  } catch (e) {
+    console.error("未登録センサー登録エラー:", e)
+    showMessage("登録に失敗しました", true)
+  }
+}
+
+
+
+
+    const q = lc(searchTerm);
 
     const filteredUsers = users.filter(
-        (u) =>
-            u.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            u.email.toLowerCase().includes(searchTerm.toLowerCase())
+    (u) => lc(u.userName).includes(q) || lc(u.email).includes(q)
     );
-    const filteredResidents = residents.filter((r) =>
-        r.residentName.toLowerCase().includes(searchTerm.toLowerCase())
+    const filteredResidents = residents.filter(
+    (r) => lc(r.residentName).includes(q)
     );
     const filteredHomes = homes.filter(
-        (h) =>
-            h.homeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            h.address.toLowerCase().includes(searchTerm.toLowerCase())
+    (h) => lc(h.homeName).includes(q) || lc(h.address).includes(q)
     );
     const filteredSensors = sensors.filter(
-        (s) =>
-            s.sensorName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.sensorType.toLowerCase().includes(searchTerm.toLowerCase())
+    (s) => lc(s.sensorName).includes(q) || lc(s.sensorType).includes(q)
     );
     const filteredUnregisteredSensors = unregisteredSensors.filter(
-        (s) =>
-            s.sensorName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.sensorType.toLowerCase().includes(searchTerm.toLowerCase())
+    (s) => lc(s.sensorName).includes(q) || lc(s.sensorType).includes(q)
     );
+
+    const canSubmit =
+  !!newUser.userName && !!newUser.email && newUser.password.length >= 8 ;
+
 
     useEffect(() => {
         loadUsers();
@@ -460,6 +665,19 @@ const Page = () => {
         loadSensors();
         loadRelationships();
     }, []);
+
+    useEffect(() => {
+        console.groupCollapsed("[debug] Select 候補IDチェック");
+
+        users.forEach(u => { if (!nonEmpty(u.userId)) console.warn("empty userId", u); });
+        residents.forEach(r => { if (!nonEmpty(r.residentId)) console.warn("empty residentId", r); });
+        homes.forEach(h => { if (!nonEmpty(h.homeId)) console.warn("empty homeId", h); });
+        sensors.forEach(s => { if (!nonEmpty(s.sensorId)) console.warn("empty sensorId (registered)", s); });
+        unregisteredSensors.forEach(s => { if (!nonEmpty(s.sensorId)) console.warn("empty sensorId (unregistered)", s); });
+
+        console.groupEnd();
+    }, [users, residents, homes, sensors, unregisteredSensors]);
+
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -636,6 +854,20 @@ const Page = () => {
                                                 />
                                             </div>
                                             <div>
+                                                <Label htmlFor="password">パスワード</Label>
+                                                <Input
+                                                    id="password"
+                                                    type="password"
+                                                    value={newUser.password}
+                                                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                                                    placeholder="8文字以上のパスワード"
+                                                    aria-invalid={!!formErrors.password}
+                                                />
+                                                {formErrors.password && (
+                                                    <p className="mt-1 text-xs text-red-500">{formErrors.password}</p>
+                                                )}
+                                            </div>
+                                            <div>
                                                 <Label htmlFor="role">
                                                     権限
                                                 </Label>
@@ -661,17 +893,17 @@ const Page = () => {
                                                     </SelectContent>
                                                 </Select>
                                             </div>
-                                            <Button
-                                                onClick={handleCreateUser}
-                                                className="w-full"
-                                            >
-                                                登録
-                                            </Button>
+                                        <Button onClick={handleCreateUser} className="w-full" disabled={!canSubmit}>
+                                        登録
+                                        </Button>
                                         </div>
                                     </DialogContent>
                                 </Dialog>
                             </CardHeader>
                             <CardContent>
+                                {filteredUsers.length === 0 ? (
+                                    <Empty>利用者が見つかりません。</Empty>
+                                ) : (
                                 <div className="space-y-4">
                                     {filteredUsers.map((user) => (
                                         <Card key={user.userId} className="p-4">
@@ -706,10 +938,19 @@ const Page = () => {
                                                         </span>
                                                     </div>
                                                 </div>
+                                                <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleDeleteUser(user.userId, user.userName)}
+                                                title="この利用者を削除"
+                                                >
+                                                    <Trash2 className="h-3 w-3" />
+                                                </Button>
                                             </div>
                                         </Card>
                                     ))}
                                 </div>
+                                )}
                             </CardContent>
                         </Card>
                     </TabsContent>
@@ -792,6 +1033,9 @@ const Page = () => {
                                 </Dialog>
                             </CardHeader>
                             <CardContent>
+                                {filteredResidents.length === 0 ? (
+                                    <Empty>高齢者が見つかりません。</Empty>
+                                ) : (
                                 <div className="space-y-4">
                                     {filteredResidents.map((resident) => (
                                         <Card
@@ -826,10 +1070,19 @@ const Page = () => {
                                                         )}
                                                     </p>
                                                 </div>
+                                                <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleDeleteResident(resident.residentId, resident.residentName)}
+                                                title="この見守り対象を削除"
+                                                >
+                                                    <Trash2 className="h-3 w-3" />
+                                                </Button>
                                             </div>
                                         </Card>
                                     ))}
                                 </div>
+                                )}
                             </CardContent>
                         </Card>
                     </TabsContent>
@@ -908,6 +1161,9 @@ const Page = () => {
                                 </Dialog>
                             </CardHeader>
                             <CardContent>
+                                {filteredHomes.length === 0 ? (
+                                    <Empty>高齢者宅が見つかりません。</Empty>
+                                ) : (
                                 <div className="space-y-4">
                                     {filteredHomes.map((home) => (
                                         <Card key={home.homeId} className="p-4">
@@ -934,10 +1190,19 @@ const Page = () => {
                                                         </span>
                                                     </div>
                                                 </div>
+                                                <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleDeleteHome(home.homeId, home.homeName)}
+                                                title="この高齢者宅を削除"
+                                                >
+                                                    <Trash2 className="h-3 w-3" />
+                                                </Button>
                                             </div>
                                         </Card>
                                     ))}
                                 </div>
+                                )}
                             </CardContent>
                         </Card>
                     </TabsContent>
@@ -951,135 +1216,20 @@ const Page = () => {
                                         高齢者宅に配置済みのセンサー
                                     </CardDescription>
                                 </div>
-                                <Dialog
-                                    open={isSensorDialogOpen}
-                                    onOpenChange={setIsSensorDialogOpen}
+                                <Button
+                                onClick={() => {
+                                    setSelectedUnregSensorId(""); // 新規開始なので一旦クリア（任意）
+                                    setIsSensorDialogOpen(true);
+                                }}
                                 >
-                                    <DialogTrigger asChild>
-                                        <Button>
-                                            <Plus className="h-4 w-4 mr-2" />
-                                            センサーを追加
-                                        </Button>
-                                    </DialogTrigger>
-                                    <DialogContent>
-                                        <DialogHeader>
-                                            <DialogTitle>
-                                                新しいセンサーを追加
-                                            </DialogTitle>
-                                            <DialogDescription>
-                                                センサーの基本情報を入力してください
-                                            </DialogDescription>
-                                        </DialogHeader>
-                                        <div className="space-y-4">
-                                            <div>
-                                                <Label htmlFor="sensorName">
-                                                    センサー名
-                                                </Label>
-                                                <Input
-                                                    id="sensorName"
-                                                    value={newSensor.sensorName}
-                                                    onChange={(e) =>
-                                                        setNewSensor({
-                                                            ...newSensor,
-                                                            sensorName:
-                                                                e.target.value,
-                                                        })
-                                                    }
-                                                    placeholder="リビング人感センサー"
-                                                />
-                                            </div>
-                                            <div>
-                                                <Label htmlFor="sensorType">
-                                                    センサー種別
-                                                </Label>
-                                                <Select
-                                                    value={newSensor.sensorType}
-                                                    onValueChange={(value) =>
-                                                        setNewSensor({
-                                                            ...newSensor,
-                                                            sensorType: value,
-                                                        })
-                                                    }
-                                                >
-                                                    <SelectTrigger>
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="motion">
-                                                            人感センサー
-                                                        </SelectItem>
-                                                        <SelectItem value="door">
-                                                            ドアセンサー
-                                                        </SelectItem>
-                                                        <SelectItem value="temperature">
-                                                            温度センサー
-                                                        </SelectItem>
-                                                        <SelectItem value="humidity">
-                                                            湿度センサー
-                                                        </SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <div>
-                                                <Label htmlFor="homeId">
-                                                    配置先
-                                                </Label>
-                                                <Select
-                                                    value={newSensor.homeId}
-                                                    onValueChange={(value) =>
-                                                        setNewSensor({
-                                                            ...newSensor,
-                                                            homeId: value,
-                                                        })
-                                                    }
-                                                >
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="高齢者宅を選択" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {homes.map((home) => (
-                                                            <SelectItem
-                                                                key={
-                                                                    home.homeId
-                                                                }
-                                                                value={
-                                                                    home.homeId
-                                                                }
-                                                            >
-                                                                {home.homeName}
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <div>
-                                                <Label htmlFor="roomName">
-                                                    部屋名
-                                                </Label>
-                                                <Input
-                                                    id="roomName"
-                                                    value={newSensor.roomName}
-                                                    onChange={(e) =>
-                                                        setNewSensor({
-                                                            ...newSensor,
-                                                            roomName:
-                                                                e.target.value,
-                                                        })
-                                                    }
-                                                    placeholder="リビング"
-                                                />
-                                            </div>
-                                            <Button
-                                                onClick={handleCreateSensor}
-                                                className="w-full"
-                                            >
-                                                登録
-                                            </Button>
-                                        </div>
-                                    </DialogContent>
-                                </Dialog>
+                                    <Plus className="h-4 w-4 mr-2" />
+                                    センサーを追加
+                                </Button>
                             </CardHeader>
                             <CardContent>
+                                {filteredSensors.length === 0 ? (
+                                    <Empty>登録済みセンサーが見つかりません。</Empty>
+                                ) : (
                                 <div className="space-y-4">
                                     {filteredSensors.map((sensor) => (
                                         <Card
@@ -1098,10 +1248,6 @@ const Page = () => {
                                                         <span>
                                                             配置先:{" "}
                                                             {sensor.homeName}
-                                                        </span>
-                                                        <span>
-                                                            部屋:{" "}
-                                                            {sensor.roomName}
                                                         </span>
                                                     </div>
                                                     <div className="flex items-center gap-4">
@@ -1128,10 +1274,19 @@ const Page = () => {
                                                         </span>
                                                     </div>
                                                 </div>
+                                                <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleDeleteSensor(sensor.sensorId, sensor.sensorName)}
+                                                title="このセンサーを削除"
+                                                >
+                                                    <Trash2 className="h-3 w-3" />
+                                                </Button>
                                             </div>
                                         </Card>
                                     ))}
                                 </div>
+                                )}
                             </CardContent>
                         </Card>
                     </TabsContent>
@@ -1145,6 +1300,9 @@ const Page = () => {
                                 </CardDescription>
                             </CardHeader>
                             <CardContent>
+                                {filteredUnregisteredSensors.length === 0 ? (
+                                    <Empty>未登録センサーが見つかりません。</Empty>
+                                ) : (
                                 <div className="space-y-4">
                                     {filteredUnregisteredSensors.map(
                                         (sensor) => (
@@ -1155,7 +1313,7 @@ const Page = () => {
                                                 <div className="flex justify-between items-start">
                                                     <div className="space-y-2">
                                                         <h3 className="font-medium text-lg">
-                                                            {sensor.sensorName}
+                                                            {sensor.sensorId}
                                                         </h3>
                                                         <p className="text-gray-600">
                                                             {sensor.sensorType}
@@ -1174,11 +1332,34 @@ const Page = () => {
                                                             </span>
                                                         </div>
                                                     </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <Button
+                                                            size="sm"
+                                                            onClick={() => {
+                                                            setSelectedUnregSensorId(sensor.sensorId)
+                                                            setIsSensorDialogOpen(true)
+                                                            }}
+                                                        >
+                                                            登録へ
+                                                        </Button>
+
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() =>
+                                                            handleDeleteSensor(sensor.sensorId, sensor.sensorName || sensor.sensorId)
+                                                            }
+                                                            title="このセンサーを削除"
+                                                        >
+                                                            <Trash2 className="h-3 w-3" />
+                                                        </Button>
+                                                    </div>
                                                 </div>
                                             </Card>
                                         )
                                     )}
                                 </div>
+                                )}
                             </CardContent>
                         </Card>
                     </TabsContent>
@@ -1210,7 +1391,9 @@ const Page = () => {
                                                 <SelectValue placeholder="利用者を選択" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {users.map((user) => (
+                                                {users
+                                                .filter(u => nonEmpty(u.userId))
+                                                .map((user) => (
                                                     <SelectItem
                                                         key={user.userId}
                                                         value={user.userId}
@@ -1236,7 +1419,9 @@ const Page = () => {
                                                 <SelectValue placeholder="高齢者を選択" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {residents.map((resident) => (
+                                                {residents
+                                                .filter(r => nonEmpty(r.residentId))
+                                                .map((resident) => (
                                                     <SelectItem
                                                         key={
                                                             resident.residentId
@@ -1365,7 +1550,9 @@ const Page = () => {
                                                 <SelectValue placeholder="高齢者を選択" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {residents.map((resident) => (
+                                                {residents
+                                                .filter(r => nonEmpty(r.residentId))
+                                                .map((resident) => (
                                                     <SelectItem
                                                         key={
                                                             resident.residentId
@@ -1395,7 +1582,9 @@ const Page = () => {
                                                 <SelectValue placeholder="高齢者宅を選択" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {homes.map((home) => (
+                                                {homes
+                                                .filter(h => nonEmpty(h.homeId))
+                                                .map((home) => (
                                                     <SelectItem
                                                         key={home.homeId}
                                                         value={home.homeId}
@@ -1478,12 +1667,14 @@ const Page = () => {
                                                 <SelectValue placeholder="センサーを選択" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {unregisteredSensors.map(
-                                                    (sensor) => (
-                                                        <SelectItem
-                                                            key={
-                                                                sensor.sensorId
-                                                            }
+                                                {unregisteredSensors
+                                                    .filter(sensor => nonEmpty(sensor.sensorId))
+                                                    .map(
+                                                        (sensor) => (
+                                                            <SelectItem
+                                                                key={
+                                                                    sensor.sensorId
+                                                                }
                                                             value={
                                                                 sensor.sensorId
                                                             }
@@ -1510,12 +1701,14 @@ const Page = () => {
                                                 <SelectValue placeholder="高齢者宅を選択" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {homes.map((home) => (
-                                                    <SelectItem
-                                                        key={home.homeId}
-                                                        value={home.homeId}
-                                                    >
-                                                        {home.homeName}
+                                                {homes
+                                                    .filter(h => nonEmpty(h.homeId))
+                                                    .map((home) => (
+                                                        <SelectItem
+                                                            key={home.homeId}
+                                                            value={home.homeId}
+                                                        >
+                                                            {home.homeName}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
@@ -1590,6 +1783,94 @@ const Page = () => {
                         </div>
                     </TabsContent>
                 </Tabs>
+                {/* --- グローバル：未登録センサーを配置するダイアログ --- */}
+                <Dialog open={isSensorDialogOpen} onOpenChange={setIsSensorDialogOpen}>
+                    <DialogContent>
+                        <DialogHeader>
+                        <DialogTitle>未登録センサーを配置</DialogTitle>
+                        <DialogDescription>
+                            未登録センサーの一覧から選び、配置先の高齢者宅と部屋を指定して登録します
+                        </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-4">
+                        <div>
+                            <Label>未登録センサー</Label>
+                            {unregisteredSensors.length === 0 ? (
+                            <div className="px-3 py-2 text-sm text-gray-500 bg-gray-50 rounded">
+                                未登録センサーはありません
+                            </div>
+                            ) : (
+                            <Select
+                                value={selectedUnregSensorId}
+                                onValueChange={(value) => setSelectedUnregSensorId(value)}
+                            >
+                                <SelectTrigger>
+                                <SelectValue placeholder="未登録センサーを選択（ID表示）" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                {unregisteredSensors
+                                    .filter(sensor => nonEmpty(sensor.sensorId))
+                                    .map((s) => (
+                                        <SelectItem key={s.sensorId} value={s.sensorId}>
+                                             ID: {s.sensorId} / Type: {s.sensorType}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            )}
+                        </div>
+
+                        <div>
+                            <Label>配置先（高齢者宅）</Label>
+                            <Select
+                            value={newSensor.homeId}
+                            onValueChange={(value) => setNewSensor({ ...newSensor, homeId: value })}
+                            >
+                            <SelectTrigger>
+                                <SelectValue placeholder="高齢者宅を選択" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {homes
+                                    .filter(home => nonEmpty(home.homeId))
+                                    .map((home) => (
+                                        <SelectItem key={home.homeId} value={home.homeId}>
+                                            {home.homeName}
+                                        </SelectItem>
+                                    ))}
+                            </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div>
+                            <Label>センサー名</Label>
+                            <Input
+                            value={newSensor.sensorName}
+                            onChange={(e) => setNewSensor({ ...newSensor, sensorName: e.target.value })}
+                            placeholder="センサー名"
+                            />
+                        </div>
+
+                        <div>
+                            <Label>部屋名</Label>
+                            <Input
+                            value={newSensor.roomName}
+                            onChange={(e) => setNewSensor({ ...newSensor, roomName: e.target.value })}
+                            placeholder="リビング"
+                            />
+                        </div>
+
+                        <Button
+                            onClick={handleAttachUnregisteredSensor}
+                            className="w-full"
+                            disabled={!selectedUnregSensorId || !newSensor.homeId}
+                        >
+                            登録
+                        </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+
             </div>
         </div>
     );

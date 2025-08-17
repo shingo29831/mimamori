@@ -7,6 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Thermometer, Droplets, DoorOpen, AlertTriangle, Heart, Clock, Wifi, Home, User, ChevronDown } from 'lucide-react'
+import { LogOut } from "lucide-react"
+import { useNavigate } from "react-router-dom"
+
+const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "")
+
 
 interface ResidentStatus {
   residentId: string
@@ -39,6 +44,27 @@ export default function FamilyDashboard() {
   const [familyData, setFamilyData] = useState<FamilyUserData | null>(null)
   const [selectedResidentId, setSelectedResidentId] = useState<string>("")
   const [wsConnected, setWsConnected] = useState(false)
+  const navigate = useNavigate()
+  const handleLogout = async () => {
+    const token = localStorage.getItem("token")
+    try {
+      if (token) {
+        await fetch(`${API_BASE}/api/logout`, {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        })
+      }
+    } catch {
+      // 通信失敗でもクライアント側はログアウトさせる
+    } finally {
+      localStorage.removeItem("token")
+      navigate("/login") // ルーティング先はプロジェクトのログインURLに合わせてください
+      // window.location.href = "/login" でもOK
+    }
+  }
 
   useEffect(() => {
     // 家族ユーザーに紐づけられた複数の高齢者のモックデータ
@@ -197,7 +223,7 @@ export default function FamilyDashboard() {
     <div className="min-h-screen bg-gray-50">
       {/* ヘッダー */}
       <header className="bg-white shadow-sm border-b">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex-1">
               <h1 className="text-2xl font-bold text-gray-900">ご家族用ダッシュボード</h1>
@@ -248,6 +274,10 @@ export default function FamilyDashboard() {
                   緊急 {urgentAlertsCount}件
                 </Badge>
               )}
+                <Button variant="outline" size="sm" onClick={handleLogout}>
+                    <LogOut className="h-4 w-2 mr-1" />
+                    ログアウト
+                </Button>
             </div>
           </div>
         </div>
