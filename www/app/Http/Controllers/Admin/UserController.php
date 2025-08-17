@@ -29,7 +29,7 @@ class UserController extends Controller
         // バリデーション（フロントと同じ最低8文字）
         $validated = $request->validate([
             'userName' => ['required','string','max:255'],
-            'email'    => ['required','string','email','max:255','unique:users,email'],
+            'email'    => ['required','string','email','max:255','unique:Users,email'],
             'role'     => ['required','in:family,staff'],
             'password' => ['required','string','min:8'],
         ], [], [

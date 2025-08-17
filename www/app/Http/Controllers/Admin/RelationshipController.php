@@ -10,55 +10,82 @@ use Illuminate\Support\Facades\DB;
 
 class RelationshipController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
+        $types = collect(explode(',', (string) $request->query('types')))
+            ->map(fn($t) => trim($t))
+            ->filter()
+            ->values();
+
+        $out = collect();
+
         // user-resident
-        $g = DB::table('Guardians')
-            ->join('Users','Users.user_id','=','Guardians.user_id')
-            ->join('Residents','Residents.resident_id','=','Guardians.resident_id')
-            ->orderBy('Guardians.id','desc')
-            ->get([
-                DB::raw("'user-resident' as type"),
-                'Guardians.id',
-                'Users.user_name as from_name',
-                'Residents.resident_name as to_name',
-                'Guardians.relationship',
-                DB::raw('NULL as room_name'),
-                'Guardians.assigned_from as created_at',
-            ]);
+        if ($types->isEmpty() || $types->contains('user-resident')) {
+            $g = DB::table('Guardians')
+                ->join('Users','Users.user_id','=','Guardians.user_id')
+                ->join('Residents','Residents.resident_id','=','Guardians.resident_id')
+                ->orderBy('Guardians.id','desc')
+                ->get([
+                    DB::raw("'user-resident' as type"),
+                    'Guardians.id',
+                    // ★ 追加: ID列
+                    'Guardians.user_id',
+                    'Guardians.resident_id',
+                    'Users.user_name as from_name',
+                    'Residents.resident_name as to_name',
+                    'Guardians.relationship',
+                    DB::raw('NULL as room_name'),
+                    'Guardians.assigned_from as created_at',
+                ]);
+            $out = $out->concat($g);
+        }
 
         // resident-home
-        $rh = DB::table('Resident_Homes')
-            ->join('Residents','Residents.resident_id','=','Resident_Homes.resident_id')
-            ->join('Homes','Homes.home_id','=','Resident_Homes.home_id')
-            ->orderBy('Resident_Homes.id','desc')
-            ->get([
-                DB::raw("'resident-home' as type"),
-                'Resident_Homes.id',
-                'Residents.resident_name as from_name',
-                'Homes.home_name as to_name',
-                DB::raw('NULL as relationship'),
-                DB::raw('NULL as room_name'),
-                'Resident_Homes.assigned_from as created_at',
-            ]);
+        if ($types->isEmpty() || $types->contains('resident-home')) {
+            $rh = DB::table('Resident_Homes')
+                ->join('Residents','Residents.resident_id','=','Resident_Homes.resident_id')
+                ->join('Homes','Homes.home_id','=','Resident_Homes.home_id')
+                ->orderBy('Resident_Homes.id','desc')
+                ->get([
+                    DB::raw("'resident-home' as type"),
+                    'Resident_Homes.id',
+                    // ★ 追加: ID列
+                    'Resident_Homes.resident_id',
+                    'Resident_Homes.home_id',
+                    'Residents.resident_name as from_name',
+                    'Homes.home_name as to_name',
+                    DB::raw('NULL as relationship'),
+                    DB::raw('NULL as room_name'),
+                    'Resident_Homes.assigned_from as created_at',
+                    // ★ あるなら返す
+                    'Resident_Homes.assigned_to',
+                ]);
+            $out = $out->concat($rh);
+        }
 
-        // home-sensor（id は sensor_id を使う）
-        $hs = DB::table('Sensors')
-            ->join('Homes','Homes.home_id','=','Sensors.home_id')
-            ->orderBy('Sensors.created_at','desc')
-            ->get([
-                DB::raw("'home-sensor' as type"),
-                'Sensors.sensor_id as id',
-                'Homes.home_name as from_name',
-                'Sensors.sensor_name as to_name',
-                DB::raw("JSON_UNQUOTE(JSON_EXTRACT(Sensors.calibration_meta, '$.room_name')) as room_name"),
-                DB::raw('NULL as relationship'),
-                'Sensors.created_at',
-            ]);
+        // home-sensor（“設置済み”だけ返す想定）
+        if ($types->isEmpty() || $types->contains('home-sensor')) {
+            $hs = DB::table('Sensors')
+                ->join('Homes','Homes.home_id','=','Sensors.home_id')
+                ->whereNotNull('Sensors.home_id')
+                ->orderBy('Sensors.sensor_id','desc') // created_at が無ければ sensor_id などに変更
+                ->get([
+                    DB::raw("'home-sensor' as type"),
+                    'Sensors.sensor_id as id',
+                    // ★ 追加: ID列（from=home, to=sensor）
+                    'Homes.home_id',
+                    'Sensors.sensor_id',
+                    'Homes.home_name as from_name',
+                    'Sensors.sensor_name as to_name',
+                    DB::raw("JSON_UNQUOTE(JSON_EXTRACT(Sensors.calibration_meta, '$.room_name')) as room_name"),
+                    DB::raw('NULL as relationship'),
+                    // created_at が無い場合は last_seen / updated_at 等に差し替え
+                    DB::raw('COALESCE(Sensors.updated_at, Sensors.created_at) as created_at'),
+                ]);
+            $out = $out->concat($hs);
+        }
 
-        $relationships = $g->concat($rh)->concat($hs)->values();
-
-        return response()->json(['relationships' => $relationships]);
+        return response()->json(['relationships' => $out->values()]);
     }
 
     public function store(Request $request)
