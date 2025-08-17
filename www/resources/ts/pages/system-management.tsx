@@ -105,16 +105,23 @@ async function apiFetch<T = any>(path: string, init: RequestInit = {}): Promise<
     ...init,
     headers: { ...authHeaders(), ...init.headers },
   })
-  // Laravel標準の JSON 返却を想定
   const data = await res.json().catch(() => ({}))
+
   if (!res.ok) {
-    const msg =
+    let msg =
       (data && (data.message || data.error)) ||
       `Request failed: ${res.status} ${res.statusText}`
+
+    // ← 追加: バリデーションの errors から最初の文言を使う
+    if (data && data.errors) {
+      const first = Object.values(data.errors).flat?.()[0] as string | undefined
+      if (first) msg = first
+    }
     throw new Error(msg)
   }
   return data
 }
+
 
 // === レスポンス → 画面用にマッピング（snake/camel両対応） ===
 const mapUser = (r: any): User => ({
@@ -182,6 +189,7 @@ const Page = () => {
         userName: "",
         email: "",
         role: "family",
+        password: "",
     });
     const [newResident, setNewResident] = useState({
         residentName: "",
@@ -214,6 +222,7 @@ const Page = () => {
     const [isResidentDialogOpen, setIsResidentDialogOpen] = useState(false);
     const [isHomeDialogOpen, setIsHomeDialogOpen] = useState(false);
     const [isSensorDialogOpen, setIsSensorDialogOpen] = useState(false);
+    const [formErrors, setFormErrors] = useState<{ password?: string }>({})
 
     const showMessage = (message: string, isError = false) => {
         console.log(isError ? `Error: ${message}` : message);
@@ -269,241 +278,228 @@ const Page = () => {
 
 
     const handleCreateUser = async () => {
-        if (!newUser.userName || !newUser.email) {
-            showMessage("氏名とメールアドレスを入力してください", true);
-            return;
+        setFormErrors({})
+
+        if (!newUser.userName || !newUser.email || !newUser.password) {
+            showMessage("氏名・メール・パスワードは必須です", true)
+            return
         }
+        if (newUser.password.length < 8) {
+            const msg = "パスワードは8文字以上で入力してください"
+            setFormErrors({ password: msg })
+            showMessage(msg, true)
+            return
+        }
+
         try {
-            const res = await apiFetch("/api/admin/users", {
+            const data = await apiFetch<{ success: boolean }>(
+            "/api/admin/users",
+            {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(newUser),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setNewUser({ userName: "", email: "", role: "family" });
-                setIsUserDialogOpen(false);
-                await loadUsers();
-                showMessage("利用者を登録しました");
-            } else {
-                showMessage(data.message || "利用者の登録に失敗しました", true);
             }
-        } catch (e) {
-            console.error("利用者登録エラー:", e);
-            showMessage("利用者の登録に失敗しました", true);
+            )
+            if (data.success) {
+            setNewUser({ userName: "", email: "", role: "family", password: "" })
+            setIsUserDialogOpen(false)
+            await loadUsers()
+            showMessage("利用者を登録しました")
+            } else {
+            showMessage("利用者の登録に失敗しました", true)
+            }
+        } catch (e: any) {
+            const msg = String(e?.message ?? e)
+            // パスワード系のエラーならフィールド下にも表示
+            if (/password/i.test(msg)) setFormErrors({ password: msg })
+            showMessage(msg, true)
         }
-    };
+    }
 
     const handleCreateResident = async () => {
-        if (!newResident.residentName || !newResident.birthDate) {
-            showMessage("氏名と生年月日を入力してください", true);
-            return;
-        }
-        try {
-            const res = await apiFetch("/api/admin/residents", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(newResident),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setNewResident({ residentName: "", birthDate: "" });
-                setIsResidentDialogOpen(false);
-                await loadResidents();
-                showMessage("高齢者を登録しました");
-            } else {
-                showMessage(data.message || "高齢者の登録に失敗しました", true);
-            }
-        } catch (e) {
-            console.error("高齢者登録エラー:", e);
-            showMessage("高齢者の登録に失敗しました", true);
-        }
-    };
+  if (!newResident.residentName || !newResident.birthDate) {
+    showMessage("氏名と生年月日を入力してください", true);
+    return;
+  }
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      "/api/admin/residents",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newResident),
+      }
+    );
+    if (data.success) {
+      setNewResident({ residentName: "", birthDate: "" });
+      setIsResidentDialogOpen(false);
+      await loadResidents();
+      showMessage("高齢者を登録しました");
+    } else {
+      showMessage(data.message || "高齢者の登録に失敗しました", true);
+    }
+  } catch (e) {
+    console.error("高齢者登録エラー:", e);
+    showMessage("高齢者の登録に失敗しました", true);
+  }
+};
 
-    const handleCreateHome = async () => {
-        if (!newHome.homeName || !newHome.address) {
-            showMessage("宅名と住所を入力してください", true);
-            return;
-        }
-        try {
-            const res = await apiFetch("/api/admin/homes", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(newHome),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setNewHome({ homeName: "", address: "" });
-                setIsHomeDialogOpen(false);
-                await loadHomes();
-                showMessage("高齢者宅を登録しました");
-            } else {
-                showMessage(
-                    data.message || "高齢者宅の登録に失敗しました",
-                    true
-                );
-            }
-        } catch (e) {
-            console.error("高齢者宅登録エラー:", e);
-            showMessage("高齢者宅の登録に失敗しました", true);
-        }
-    };
+const handleCreateHome = async () => {
+  if (!newHome.homeName || !newHome.address) {
+    showMessage("宅名と住所を入力してください", true);
+    return;
+  }
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      "/api/admin/homes",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newHome),
+      }
+    );
+    if (data.success) {
+      setNewHome({ homeName: "", address: "" });
+      setIsHomeDialogOpen(false);
+      await loadHomes();
+      showMessage("高齢者宅を登録しました");
+    } else {
+      showMessage(data.message || "高齢者宅の登録に失敗しました", true);
+    }
+  } catch (e) {
+    console.error("高齢者宅登録エラー:", e);
+    showMessage("高齢者宅の登録に失敗しました", true);
+  }
+};
 
-    const handleCreateSensor = async () => {
-        if (
-            !newSensor.sensorName ||
-            !newSensor.sensorType ||
-            !newSensor.homeId
-        ) {
-            showMessage("すべての項目を入力してください", true);
-            return;
-        }
-        try {
-            const res = await apiFetch("/api/admin/sensors", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(newSensor),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setNewSensor({
-                    sensorName: "",
-                    sensorType: "",
-                    homeId: "",
-                    roomName: "",
-                });
-                setIsSensorDialogOpen(false);
-                await loadSensors();
-                showMessage("センサーを登録しました");
-            } else {
-                showMessage(
-                    data.message || "センサーの登録に失敗しました",
-                    true
-                );
-            }
-        } catch (e) {
-            console.error("センサー登録エラー:", e);
-            showMessage("センサーの登録に失敗しました", true);
-        }
-    };
+const handleCreateSensor = async () => {
+  if (!newSensor.sensorName || !newSensor.sensorType || !newSensor.homeId) {
+    showMessage("すべての項目を入力してください", true);
+    return;
+  }
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      "/api/admin/sensors",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newSensor),
+      }
+    );
+    if (data.success) {
+      setNewSensor({ sensorName: "", sensorType: "", homeId: "", roomName: "" });
+      setIsSensorDialogOpen(false);
+      await loadSensors();
+      showMessage("センサーを登録しました");
+    } else {
+      showMessage(data.message || "センサーの登録に失敗しました", true);
+    }
+  } catch (e) {
+    console.error("センサー登録エラー:", e);
+    showMessage("センサーの登録に失敗しました", true);
+  }
+};
 
-    const handleCreateGuardianLink = async () => {
-        if (
-            !newGuardianLink.userId ||
-            !newGuardianLink.residentId ||
-            !newGuardianLink.relationship
-        ) {
-            showMessage("すべての項目を選択してください", true);
-            return;
-        }
-        try {
-            const res = await apiFetch("/api/admin/relationships", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    type: "user-resident",
-                    ...newGuardianLink,
-                }),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setNewGuardianLink({
-                    userId: "",
-                    residentId: "",
-                    relationship: "",
-                });
-                await loadRelationships();
-                showMessage("利用者と高齢者を紐づけました");
-            } else {
-                showMessage(data.message || "紐付けに失敗しました", true);
-            }
-        } catch (e) {
-            console.error("紐付けエラー:", e);
-            showMessage("紐付けに失敗しました", true);
-        }
-    };
+const handleCreateGuardianLink = async () => {
+  if (!newGuardianLink.userId || !newGuardianLink.residentId || !newGuardianLink.relationship) {
+    showMessage("すべての項目を選択してください", true);
+    return;
+  }
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      "/api/admin/relationships",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "user-resident", ...newGuardianLink }),
+      }
+    );
+    if (data.success) {
+      setNewGuardianLink({ userId: "", residentId: "", relationship: "" });
+      await loadRelationships();
+      showMessage("利用者と高齢者を紐づけました");
+    } else {
+      showMessage(data.message || "紐付けに失敗しました", true);
+    }
+  } catch (e) {
+    console.error("紐付けエラー:", e);
+    showMessage("紐付けに失敗しました", true);
+  }
+};
 
-    const handleCreateResidentHomeLink = async () => {
-        if (!newResidentHomeLink.residentId || !newResidentHomeLink.homeId) {
-            showMessage("高齢者と高齢者宅を選択してください", true);
-            return;
-        }
-        try {
-            const res = await apiFetch("/api/admin/relationships", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    type: "resident-home",
-                    ...newResidentHomeLink,
-                }),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setNewResidentHomeLink({ residentId: "", homeId: "" });
-                await loadRelationships();
-                showMessage("高齢者と高齢者宅を紐づけました");
-            } else {
-                showMessage(data.message || "紐付けに失敗しました", true);
-            }
-        } catch (e) {
-            console.error("紐付けエラー:", e);
-            showMessage("紐付けに失敗しました", true);
-        }
-    };
+const handleCreateResidentHomeLink = async () => {
+  if (!newResidentHomeLink.residentId || !newResidentHomeLink.homeId) {
+    showMessage("高齢者と高齢者宅を選択してください", true);
+    return;
+  }
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      "/api/admin/relationships",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "resident-home", ...newResidentHomeLink }),
+      }
+    );
+    if (data.success) {
+      setNewResidentHomeLink({ residentId: "", homeId: "" });
+      await loadRelationships();
+      showMessage("高齢者と高齢者宅を紐づけました");
+    } else {
+      showMessage(data.message || "紐付けに失敗しました", true);
+    }
+  } catch (e) {
+    console.error("紐付けエラー:", e);
+    showMessage("紐付けに失敗しました", true);
+  }
+};
 
-    const handleCreateSensorHomeLink = async () => {
-        if (!newSensorHomeLink.sensorId || !newSensorHomeLink.homeId) {
-            showMessage("センサーと高齢者宅を選択してください", true);
-            return;
-        }
-        try {
-            const res = await apiFetch("/api/admin/relationships", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    type: "home-sensor",
-                    ...newSensorHomeLink,
-                }),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setNewSensorHomeLink({
-                    sensorId: "",
-                    homeId: "",
-                    roomName: "",
-                });
-                await loadSensors();
-                await loadRelationships();
-                showMessage("センサーと高齢者宅を紐づけました");
-            } else {
-                showMessage(data.message || "紐付けに失敗しました", true);
-            }
-        } catch (e) {
-            console.error("紐付けエラー:", e);
-            showMessage("紐付けに失敗しました", true);
-        }
-    };
+const handleCreateSensorHomeLink = async () => {
+  if (!newSensorHomeLink.sensorId || !newSensorHomeLink.homeId) {
+    showMessage("センサーと高齢者宅を選択してください", true);
+    return;
+  }
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      "/api/admin/relationships",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "home-sensor", ...newSensorHomeLink }),
+      }
+    );
+    if (data.success) {
+      setNewSensorHomeLink({ sensorId: "", homeId: "", roomName: "" });
+      await loadSensors();
+      await loadRelationships();
+      showMessage("センサーと高齢者宅を紐づけました");
+    } else {
+      showMessage(data.message || "紐付けに失敗しました", true);
+    }
+  } catch (e) {
+    console.error("紐付けエラー:", e);
+    showMessage("紐付けに失敗しました", true);
+  }
+};
 
-    const handleDeleteRelationship = async (type: string, id: string) => {
-        try {
-            const res = await apiFetch(
-                `/api/admin/relationships?type=${type}&id=${id}`,
-                {
-                    method: "DELETE",
-                }
-            );
-            const data = await res.json();
-            if (data.success) {
-                await loadRelationships();
-                showMessage("紐付けを削除しました");
-            } else {
-                showMessage(data.message || "削除に失敗しました", true);
-            }
-        } catch (e) {
-            console.error("削除エラー:", e);
-            showMessage("削除に失敗しました", true);
-        }
-    };
+const handleDeleteRelationship = async (type: string, id: string) => {
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      `/api/admin/relationships?type=${type}&id=${id}`,
+      { method: "DELETE" }
+    );
+    if (data.success) {
+      await loadRelationships();
+      showMessage("紐付けを削除しました");
+    } else {
+      showMessage(data.message || "削除に失敗しました", true);
+    }
+  } catch (e) {
+    console.error("削除エラー:", e);
+    showMessage("削除に失敗しました", true);
+  }
+};
+
 
     const filteredUsers = users.filter(
         (u) =>
@@ -528,6 +524,9 @@ const Page = () => {
             s.sensorName.toLowerCase().includes(searchTerm.toLowerCase()) ||
             s.sensorType.toLowerCase().includes(searchTerm.toLowerCase())
     );
+    const canSubmit =
+  !!newUser.userName && !!newUser.email && newUser.password.length >= 8 ;
+
 
     useEffect(() => {
         loadUsers();
@@ -712,6 +711,20 @@ const Page = () => {
                                                 />
                                             </div>
                                             <div>
+                                                <Label htmlFor="password">パスワード</Label>
+                                                <Input
+                                                    id="password"
+                                                    type="password"
+                                                    value={newUser.password}
+                                                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                                                    placeholder="8文字以上を推奨"
+                                                    aria-invalid={!!formErrors.password}
+                                                />
+                                                {formErrors.password && (
+                                                    <p className="mt-1 text-xs text-red-500">{formErrors.password}</p>
+                                                )}
+                                            </div>
+                                            <div>
                                                 <Label htmlFor="role">
                                                     権限
                                                 </Label>
@@ -737,12 +750,9 @@ const Page = () => {
                                                     </SelectContent>
                                                 </Select>
                                             </div>
-                                            <Button
-                                                onClick={handleCreateUser}
-                                                className="w-full"
-                                            >
-                                                登録
-                                            </Button>
+                                        <Button onClick={handleCreateUser} className="w-full" disabled={!canSubmit}>
+                                        登録
+                                        </Button>
                                         </div>
                                     </DialogContent>
                                 </Dialog>
