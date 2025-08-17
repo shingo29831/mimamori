@@ -500,6 +500,30 @@ const handleDeleteRelationship = async (type: string, id: string) => {
   }
 };
 
+const handleDeleteUser = async (userId: string, userName: string) => {
+  if (!confirm(`"${userName}" を削除します。よろしいですか？`)) return
+
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      `/api/admin/users/${userId}`,
+      { method: "DELETE" }
+    )
+
+    if (data.success) {
+      await loadUsers()
+      showMessage("利用者を削除しました")
+    } else {
+      showMessage(data.message || "削除に失敗しました", true)
+    }
+  } catch (e: any) {
+    console.error("利用者削除エラー:", e)
+    // バリデーション/権限制約などの文言をそのまま表示
+    const msg = String(e?.message ?? e) || "削除に失敗しました"
+    showMessage(msg, true)
+  }
+}
+
+
 
     const filteredUsers = users.filter(
         (u) =>
@@ -795,6 +819,14 @@ const handleDeleteRelationship = async (type: string, id: string) => {
                                                         </span>
                                                     </div>
                                                 </div>
+                                                <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleDeleteUser(user.userId, user.userName)}
+                                                title="この利用者を削除"
+                                                >
+                                                    <Trash2 className="h-3 w-3" />
+                                                </Button>
                                             </div>
                                         </Card>
                                     ))}

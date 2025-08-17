@@ -14,8 +14,21 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
     Route::get('/users', [UserController::class, 'index']);
     Route::post('/users', [UserController::class, 'store']);
-    Route::get('/residents', fn() => response()->json(['residents' => []]));
-    Route::get('/homes', fn() => response()->json(['homes' => []]));
-    Route::get('/sensors', fn() => response()->json(['sensors' => []]));
-    Route::get('/relationships', fn() => response()->json(['relationships' => []]));
+    Route::delete('users/{id}', [UserController::class, 'destroy']);
+    // residents
+    Route::get('residents',  [ResidentController::class,'index']);
+    Route::post('residents', [ResidentController::class,'store']);
+
+    // homes
+    Route::get('homes',  [HomeController::class,'index']);
+    Route::post('homes', [HomeController::class,'store']);
+
+    // sensors
+    Route::get('sensors',  [SensorController::class,'index']);
+    Route::post('sensors', [SensorController::class,'store']);
+
+    // relationships (3種をまとめて)
+    Route::get('relationships',    [RelationshipController::class,'index']);
+    Route::post('relationships',   [RelationshipController::class,'store']);
+    Route::delete('relationships', [RelationshipController::class,'destroy']);
 });

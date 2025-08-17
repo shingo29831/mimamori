@@ -17,42 +17,48 @@ class UserController extends Controller
             abort(403, 'Forbidden');
         }
 
-        $users = User::query()
-            ->select(['user_id','user_name','email','role','created_at'])
+        $users = User::select('user_id','user_name','email','role','created_at')
             ->orderBy('created_at','desc')
             ->get();
 
-        return response()->json([
-            'users' => $users,
-        ]);
+        return response()->json(['users' => $users]);
     }
 
     public function store(Request $request)
     {
-        $v = $request->validate([
+        // バリデーション（フロントと同じ最低8文字）
+        $validated = $request->validate([
             'userName' => ['required','string','max:255'],
-            'email'    => ['required','email','unique:users,email'],
-            'role'     => ['required','in:staff,family'],
-            'password' => ['required','string','min:8'], // ← 追加
+            'email'    => ['required','string','email','max:255','unique:users,email'],
+            'role'     => ['required','in:family,staff'],
+            'password' => ['required','string','min:8'],
+        ], [], [
+            'userName' => '氏名',
+            'email'    => 'メールアドレス',
+            'role'     => '権限',
+            'password' => 'パスワード',
         ]);
 
         $user = new User();
-        $user->user_id       = (string) Str::uuid(); // 既存仕様に合わせて
-        $user->user_name     = $v['userName'];
-        $user->email         = $v['email'];
-        $user->role          = $v['role'];
-        $user->password_hash = Hash::make($v['password']); // ← ここがポイント
+        $user->user_id       = (string) Str::uuid(); // VARCHAR(64) なので UUID でOK
+        $user->user_name     = $validated['userName'];
+        $user->email         = $validated['email'];
+        $user->role          = $validated['role'];
+        $user->password_hash = Hash::make($validated['password']); // ← カラムは password_hash
+        $user->is_active     = true;
+
         $user->save();
 
-        return response()->json([
-            'success' => true,
-            'user' => [
-                'user_id'   => $user->user_id,
-                'user_name' => $user->user_name,
-                'email'     => $user->email,
-                'role'      => $user->role,
-                'created_at'=> $user->created_at,
-            ],
-        ], 201);
+        return response()->json(['success' => true]);
     }
+
+    public function destroy(string $id)
+    {
+        // user_id で削除（guardians は FK の ON DELETE CASCADE が効きます）
+        $user = User::where('user_id', $id)->firstOrFail();
+        $user->delete();
+
+        return response()->json(['success' => true]);
+    }
+    
 }

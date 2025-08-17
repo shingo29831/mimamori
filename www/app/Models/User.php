@@ -20,7 +20,6 @@ class User extends Authenticatable
     // Laravelのデフォルト 'password' ではないので注意
     protected $hidden = [
         'password_hash',
-        'remember_token',
     ];
 
     protected $fillable = [
@@ -32,6 +31,15 @@ class User extends Authenticatable
     public function getAuthPassword()
     {
         return $this->password_hash;
+    }
+
+    public function guardians() {
+        return $this->hasMany(Guardian::class, 'user_id', 'user_id');
+    }
+    public function residents() {
+        return $this->belongsToMany(Resident::class, 'guardians', 'user_id', 'resident_id', 'user_id', 'resident_id')
+                    ->withPivot(['relationship','assigned_from','assigned_to'])
+                    ->withTimestamps();
     }
 
 }
