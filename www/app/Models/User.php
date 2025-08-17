@@ -11,7 +11,7 @@ class User extends Authenticatable
     use HasApiTokens, Notifiable;
 
     // 既存テーブル定義に合わせる
-    protected $table = 'users';          // 大文字テーブル名に変える
+    protected $table = 'Users';          // 大文字テーブル名に変える
     protected $primaryKey = 'user_id';   // 文字列PK
     public $incrementing = false;
     protected $keyType = 'string';

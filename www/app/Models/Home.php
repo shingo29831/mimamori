@@ -5,7 +5,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Home extends Model
 {
-    protected $table = 'homes';
+    protected $table = 'Homes';
     protected $primaryKey = 'home_id';
     public $incrementing = false;
     protected $keyType = 'string';

@@ -5,7 +5,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Sensor extends Model
 {
-    protected $table = 'sensors';
+    protected $table = 'Sensors';
     protected $primaryKey = 'sensor_id';
     public $incrementing = false;
     protected $keyType = 'string';

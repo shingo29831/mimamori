@@ -26,20 +26,19 @@ class SensorController extends Controller
     {
         // フロントの mapSensor は: sensor_id, sensor_name, sensor_type, home_id/home_name, room_name?, status, last_active を読む
         // DBは last_seen を持つので last_active に alias
-        $rows = DB::table('sensors')
-            ->leftJoin('homes','homes.home_id','=','sensors.home_id')
+        $rows = DB::table('Sensors')
+            ->leftJoin('Homes','Homes.home_id','=','Sensors.home_id')
             ->select([
-                'sensors.sensor_id',
-                'sensors.sensor_name',
-                'sensors.sensor_type',
-                'sensors.home_id',
-                'homes.home_name',
+                'Sensors.sensor_id',
+                'Sensors.sensor_name',
+                'Sensors.sensor_type',
+                'Sensors.home_id',
+                'Homes.home_name',
                 DB::raw('NULL as room_name'),
-                'sensors.status',
-                DB::raw('sensors.last_seen as last_active'),
-                'sensors.updated_at',
+                'Sensors.status',
+                DB::raw('Sensors.last_seen as last_active')
             ])
-            ->orderByDesc('sensors.created_at')
+            ->orderByDesc('Sensors.created_at')
             ->get();
 
         return response()->json(['sensors' => $rows]);

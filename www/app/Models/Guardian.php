@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Guardian extends Model
 {
-    protected $table = 'guardians';
+    protected $table = 'Guardians';
     protected $fillable = ['user_id','resident_id','relationship','assigned_from','assigned_to'];
     public $timestamps = true; // created_at/updated_at を使うなら
 

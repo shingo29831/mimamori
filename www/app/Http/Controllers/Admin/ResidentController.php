@@ -11,16 +11,15 @@ class ResidentController extends Controller
 {
     public function index()
     {
-        $rows = DB::table('residents')
+        $rows = DB::table('Residents')
             ->select([
-                'residents.resident_id',
-                'residents.resident_name',
-                'residents.date_of_birth',
-                'residents.created_at',
-                'residents.updated_at',
+                'Residents.resident_id',
+                'Residents.resident_name',
+                'Residents.date_of_birth',
+                'Residents.created_at',
                 DB::raw('CASE WHEN date_of_birth IS NULL THEN NULL ELSE TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) END AS age_calc'),
             ])
-            ->orderByDesc('residents.created_at')
+            ->orderByDesc('Residents.created_at')
             ->get();
 
         return response()->json(['residents' => $rows]);

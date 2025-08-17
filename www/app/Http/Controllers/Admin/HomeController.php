@@ -12,22 +12,22 @@ class HomeController extends Controller
     
     public function index()
     {
-        $sensorCounts = DB::table('sensors')
+        $sensorCounts = DB::table('Sensors')
             ->select('home_id', DB::raw('COUNT(*) AS sensor_count'))
             ->groupBy('home_id');
 
-        $rows = DB::table('homes')
+        $rows = DB::table('Homes')
             ->leftJoinSub($sensorCounts, 'sc', function ($join) {
-                $join->on('sc.home_id', '=', 'homes.home_id');
+                $join->on('sc.home_id', '=', 'Homes.home_id');
             })
             ->select([
-                'homes.home_id',
-                'homes.home_name',
-                'homes.address',
-                'homes.created_at',
+                'Homes.home_id',
+                'Homes.home_name',
+                'Homes.address',
+                'Homes.created_at',
                 DB::raw('COALESCE(sc.sensor_count, 0) AS sensor_count'),
             ])
-            ->orderByDesc('homes.created_at')
+            ->orderByDesc('Homes.created_at')
             ->get();
 
         return response()->json(['homes' => $rows]);

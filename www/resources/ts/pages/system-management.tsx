@@ -148,11 +148,22 @@ const mapHome = (r: any): HomeData => ({
   createdAt: r.created_at ?? r.createdAt,
 })
 
+const normalizeEmptyId = (v: any) => {
+  if (v == null) return undefined;
+  const s = String(v).trim();
+  const empties = new Set(["", "null", "undefined", "none", "nothing", "(none)"]);
+  return empties.has(s.toLowerCase()) ? undefined : s;
+};
+
+
+const lc = (v: any) => (v ?? "").toString().toLowerCase();
+
+
 const mapSensor = (r: any): SensorData => ({
   sensorId: r.sensor_id ?? r.sensorId,
   sensorName: r.sensor_name ?? r.sensorName,
   sensorType: r.sensor_type ?? r.sensorType,
-  homeId: r.home_id ?? r.homeId,
+  homeId: normalizeEmptyId(r.home_id ?? r.homeId),
   homeName: r.home_name ?? r.homeName,
   roomName: r.room_name ?? r.roomName,
   status: r.status,
@@ -223,6 +234,7 @@ const Page = () => {
     const [isHomeDialogOpen, setIsHomeDialogOpen] = useState(false);
     const [isSensorDialogOpen, setIsSensorDialogOpen] = useState(false);
     const [formErrors, setFormErrors] = useState<{ password?: string }>({})
+    const [selectedUnregSensorId, setSelectedUnregSensorId] = useState("");
 
     const showMessage = (message: string, isError = false) => {
         console.log(isError ? `Error: ${message}` : message);
@@ -580,32 +592,62 @@ const handleDeleteSensor = async (sensorId: string, sensorName: string) => {
   }
 }
 
+const handleAttachUnregisteredSensor = async () => {
+  if (!selectedUnregSensorId || !newSensor.homeId) {
+    showMessage("未登録センサーと配置先を選択してください", true)
+    return
+  }
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      "/api/admin/relationships",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "home-sensor",
+          sensorId: selectedUnregSensorId,
+          homeId: newSensor.homeId,
+          roomName: newSensor.roomName,
+        }),
+      }
+    )
+    if (data.success) {
+      setSelectedUnregSensorId("")
+      setNewSensor({ sensorName: "", sensorType: "", homeId: "", roomName: "" })
+      setIsSensorDialogOpen(false)
+      await loadSensors()
+      await loadRelationships()
+      showMessage("未登録センサーを配置しました")
+    } else {
+      showMessage(data.message || "登録に失敗しました", true)
+    }
+  } catch (e) {
+    console.error("未登録センサー登録エラー:", e)
+    showMessage("登録に失敗しました", true)
+  }
+}
 
 
+
+
+    const q = lc(searchTerm);
 
     const filteredUsers = users.filter(
-        (u) =>
-            u.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            u.email.toLowerCase().includes(searchTerm.toLowerCase())
+    (u) => lc(u.userName).includes(q) || lc(u.email).includes(q)
     );
-    const filteredResidents = residents.filter((r) =>
-        r.residentName.toLowerCase().includes(searchTerm.toLowerCase())
+    const filteredResidents = residents.filter(
+    (r) => lc(r.residentName).includes(q)
     );
     const filteredHomes = homes.filter(
-        (h) =>
-            h.homeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            h.address.toLowerCase().includes(searchTerm.toLowerCase())
+    (h) => lc(h.homeName).includes(q) || lc(h.address).includes(q)
     );
     const filteredSensors = sensors.filter(
-        (s) =>
-            s.sensorName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.sensorType.toLowerCase().includes(searchTerm.toLowerCase())
+    (s) => lc(s.sensorName).includes(q) || lc(s.sensorType).includes(q)
     );
     const filteredUnregisteredSensors = unregisteredSensors.filter(
-        (s) =>
-            s.sensorName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.sensorType.toLowerCase().includes(searchTerm.toLowerCase())
+    (s) => lc(s.sensorName).includes(q) || lc(s.sensorType).includes(q)
     );
+
     const canSubmit =
   !!newUser.userName && !!newUser.email && newUser.password.length >= 8 ;
 
@@ -1155,133 +1197,15 @@ const handleDeleteSensor = async (sensorId: string, sensorName: string) => {
                                         高齢者宅に配置済みのセンサー
                                     </CardDescription>
                                 </div>
-                                <Dialog
-                                    open={isSensorDialogOpen}
-                                    onOpenChange={setIsSensorDialogOpen}
+                                <Button
+                                onClick={() => {
+                                    setSelectedUnregSensorId(""); // 新規開始なので一旦クリア（任意）
+                                    setIsSensorDialogOpen(true);
+                                }}
                                 >
-                                    <DialogTrigger asChild>
-                                        <Button>
-                                            <Plus className="h-4 w-4 mr-2" />
-                                            センサーを追加
-                                        </Button>
-                                    </DialogTrigger>
-                                    <DialogContent>
-                                        <DialogHeader>
-                                            <DialogTitle>
-                                                新しいセンサーを追加
-                                            </DialogTitle>
-                                            <DialogDescription>
-                                                センサーの基本情報を入力してください
-                                            </DialogDescription>
-                                        </DialogHeader>
-                                        <div className="space-y-4">
-                                            <div>
-                                                <Label htmlFor="sensorName">
-                                                    センサー名
-                                                </Label>
-                                                <Input
-                                                    id="sensorName"
-                                                    value={newSensor.sensorName}
-                                                    onChange={(e) =>
-                                                        setNewSensor({
-                                                            ...newSensor,
-                                                            sensorName:
-                                                                e.target.value,
-                                                        })
-                                                    }
-                                                    placeholder="リビング人感センサー"
-                                                />
-                                            </div>
-                                            <div>
-                                                <Label htmlFor="sensorType">
-                                                    センサー種別
-                                                </Label>
-                                                <Select
-                                                    value={newSensor.sensorType}
-                                                    onValueChange={(value) =>
-                                                        setNewSensor({
-                                                            ...newSensor,
-                                                            sensorType: value,
-                                                        })
-                                                    }
-                                                >
-                                                    <SelectTrigger>
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="motion">
-                                                            人感センサー
-                                                        </SelectItem>
-                                                        <SelectItem value="door">
-                                                            ドアセンサー
-                                                        </SelectItem>
-                                                        <SelectItem value="temperature">
-                                                            温度センサー
-                                                        </SelectItem>
-                                                        <SelectItem value="humidity">
-                                                            湿度センサー
-                                                        </SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <div>
-                                                <Label htmlFor="homeId">
-                                                    配置先
-                                                </Label>
-                                                <Select
-                                                    value={newSensor.homeId}
-                                                    onValueChange={(value) =>
-                                                        setNewSensor({
-                                                            ...newSensor,
-                                                            homeId: value,
-                                                        })
-                                                    }
-                                                >
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="高齢者宅を選択" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {homes.map((home) => (
-                                                            <SelectItem
-                                                                key={
-                                                                    home.homeId
-                                                                }
-                                                                value={
-                                                                    home.homeId
-                                                                }
-                                                            >
-                                                                {home.homeName}
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <div>
-                                                <Label htmlFor="roomName">
-                                                    部屋名
-                                                </Label>
-                                                <Input
-                                                    id="roomName"
-                                                    value={newSensor.roomName}
-                                                    onChange={(e) =>
-                                                        setNewSensor({
-                                                            ...newSensor,
-                                                            roomName:
-                                                                e.target.value,
-                                                        })
-                                                    }
-                                                    placeholder="リビング"
-                                                />
-                                            </div>
-                                            <Button
-                                                onClick={handleCreateSensor}
-                                                className="w-full"
-                                            >
-                                                登録
-                                            </Button>
-                                        </div>
-                                    </DialogContent>
-                                </Dialog>
+                                    <Plus className="h-4 w-4 mr-2" />
+                                    センサーを追加
+                                </Button>
                             </CardHeader>
                             <CardContent>
                                 {filteredSensors.length === 0 ? (
@@ -1305,10 +1229,6 @@ const handleDeleteSensor = async (sensorId: string, sensorName: string) => {
                                                         <span>
                                                             配置先:{" "}
                                                             {sensor.homeName}
-                                                        </span>
-                                                        <span>
-                                                            部屋:{" "}
-                                                            {sensor.roomName}
                                                         </span>
                                                     </div>
                                                     <div className="flex items-center gap-4">
@@ -1374,7 +1294,7 @@ const handleDeleteSensor = async (sensorId: string, sensorName: string) => {
                                                 <div className="flex justify-between items-start">
                                                     <div className="space-y-2">
                                                         <h3 className="font-medium text-lg">
-                                                            {sensor.sensorName}
+                                                            {sensor.sensorId}
                                                         </h3>
                                                         <p className="text-gray-600">
                                                             {sensor.sensorType}
@@ -1393,14 +1313,28 @@ const handleDeleteSensor = async (sensorId: string, sensorName: string) => {
                                                             </span>
                                                         </div>
                                                     </div>
-                                                    <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => handleDeleteSensor(sensor.sensorId, sensor.sensorName)}
-                                                    title="このセンサーを削除"
-                                                    >
-                                                        <Trash2 className="h-3 w-3" />
-                                                    </Button>
+                                                    <div className="flex items-center gap-2">
+                                                        <Button
+                                                            size="sm"
+                                                            onClick={() => {
+                                                            setSelectedUnregSensorId(sensor.sensorId)
+                                                            setIsSensorDialogOpen(true)
+                                                            }}
+                                                        >
+                                                            登録へ
+                                                        </Button>
+
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() =>
+                                                            handleDeleteSensor(sensor.sensorId, sensor.sensorName || sensor.sensorId)
+                                                            }
+                                                            title="このセンサーを削除"
+                                                        >
+                                                            <Trash2 className="h-3 w-3" />
+                                                        </Button>
+                                                    </div>
                                                 </div>
                                             </Card>
                                         )
@@ -1818,6 +1752,90 @@ const handleDeleteSensor = async (sensorId: string, sensorName: string) => {
                         </div>
                     </TabsContent>
                 </Tabs>
+                {/* --- グローバル：未登録センサーを配置するダイアログ --- */}
+                <Dialog open={isSensorDialogOpen} onOpenChange={setIsSensorDialogOpen}>
+                    <DialogContent>
+                        <DialogHeader>
+                        <DialogTitle>未登録センサーを配置</DialogTitle>
+                        <DialogDescription>
+                            未登録センサーの一覧から選び、配置先の高齢者宅と部屋を指定して登録します
+                        </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-4">
+                        <div>
+                            <Label>未登録センサー</Label>
+                            {unregisteredSensors.length === 0 ? (
+                            <div className="px-3 py-2 text-sm text-gray-500 bg-gray-50 rounded">
+                                未登録センサーはありません
+                            </div>
+                            ) : (
+                            <Select
+                                value={selectedUnregSensorId}
+                                onValueChange={(value) => setSelectedUnregSensorId(value)}
+                            >
+                                <SelectTrigger>
+                                <SelectValue placeholder="未登録センサーを選択（ID表示）" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                {unregisteredSensors.map((s) => (
+                                    <SelectItem key={s.sensorId} value={s.sensorId}>
+                                         ID: {s.sensorId} / Type: {s.sensorType}
+                                    </SelectItem>
+                                ))}
+                                </SelectContent>
+                            </Select>
+                            )}
+                        </div>
+
+                        <div>
+                            <Label>配置先（高齢者宅）</Label>
+                            <Select
+                            value={newSensor.homeId}
+                            onValueChange={(value) => setNewSensor({ ...newSensor, homeId: value })}
+                            >
+                            <SelectTrigger>
+                                <SelectValue placeholder="高齢者宅を選択" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {homes.map((home) => (
+                                <SelectItem key={home.homeId} value={home.homeId}>
+                                    {home.homeName}
+                                </SelectItem>
+                                ))}
+                            </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div>
+                            <Label>センサー名</Label>
+                            <Input
+                            value={newSensor.sensorName}
+                            onChange={(e) => setNewSensor({ ...newSensor, sensorName: e.target.value })}
+                            placeholder="センサー名"
+                            />
+                        </div>
+
+                        <div>
+                            <Label>部屋名</Label>
+                            <Input
+                            value={newSensor.roomName}
+                            onChange={(e) => setNewSensor({ ...newSensor, roomName: e.target.value })}
+                            placeholder="リビング"
+                            />
+                        </div>
+
+                        <Button
+                            onClick={handleAttachUnregisteredSensor}
+                            className="w-full"
+                            disabled={!selectedUnregSensorId || !newSensor.homeId}
+                        >
+                            登録
+                        </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+
             </div>
         </div>
     );
