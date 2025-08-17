@@ -9,6 +9,6 @@ class Home extends Model
     protected $primaryKey = 'home_id';
     public $incrementing = false;
     protected $keyType = 'string';
-
     protected $fillable = ['home_id','home_name','address'];
+    public $timestamps = true;
 }

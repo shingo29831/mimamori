@@ -24,60 +24,52 @@ class SensorController extends Controller
 
     public function index()
     {
-        $sensors = Sensor::query()
+        // フロントの mapSensor は: sensor_id, sensor_name, sensor_type, home_id/home_name, room_name?, status, last_active を読む
+        // DBは last_seen を持つので last_active に alias
+        $rows = DB::table('sensors')
             ->leftJoin('homes','homes.home_id','=','sensors.home_id')
-            ->orderBy('sensors.created_at','desc')
-            ->get([
+            ->select([
                 'sensors.sensor_id',
                 'sensors.sensor_name',
                 'sensors.sensor_type',
                 'sensors.home_id',
                 'homes.home_name',
+                DB::raw('NULL as room_name'),
                 'sensors.status',
-                'sensors.last_seen',
-                DB::raw("JSON_UNQUOTE(JSON_EXTRACT(sensors.calibration_meta, '$.room_name')) as room_name"),
+                DB::raw('sensors.last_seen as last_active'),
                 'sensors.updated_at',
-                'sensors.created_at',
             ])
-            ->map(function ($r) {
-                // UI が期待するキー名に合わせる（lastActive など）
-                return [
-                    'sensor_id'   => $r->sensor_id,
-                    'sensor_name' => $r->sensor_name,
-                    'sensor_type' => $r->sensor_type,
-                    'home_id'     => $r->home_id,
-                    'home_name'   => $r->home_name,
-                    'room_name'   => $r->room_name,
-                    'status'      => $r->status,
-                    'last_active' => $r->last_seen ?? $r->updated_at,
-                    'created_at'  => $r->created_at,
-                ];
-            });
+            ->orderByDesc('sensors.created_at')
+            ->get();
 
-        return response()->json(['sensors'=>$sensors]);
+        return response()->json(['sensors' => $rows]);
     }
 
-    public function store(Request $request)
+     public function store(Request $request)
     {
-        $v = $request->validate([
+        $data = $request->validate([
             'sensorName' => ['required','string','max:255'],
-            'sensorType' => ['required','string','max:50'],
-            'homeId'     => ['required','string','max:64','exists:homes,home_id'],
-            'roomName'   => ['nullable','string','max:255'],
-        ], [], [
-            'sensorName'=>'センサー名','sensorType'=>'センサー種別','homeId'=>'配置先','roomName'=>'部屋名'
+            'sensorType' => ['required','in:MT10,MT20,MT30,MV23,other'],
+            'homeId'     => ['required','string','max:64'],
+            'roomName'   => ['nullable','string','max:255'], // 今は使わないが受け取ってOK
         ]);
 
-        $sensor = new Sensor();
-        $sensor->sensor_id   = (string) Str::uuid();
-        $sensor->sensor_name = $v['sensorName'];
-        $sensor->sensor_type = $this->mapSensorType($v['sensorType']);
-        $sensor->home_id     = $v['homeId'];
-        $sensor->status      = 'active';
-        $sensor->calibration_meta = ['room_name' => $v['roomName'] ?? null];
+        Sensor::create([
+            'sensor_id'   => (string) Str::uuid(),
+            'sensor_name' => $data['sensorName'],
+            'sensor_type' => $data['sensorType'],
+            'home_id'     => $data['homeId'],
+            'status'      => 'active',
+            'last_seen'   => null,
+        ]);
 
-        $sensor->save();
-
-        return response()->json(['success'=>true]);
+        return response()->json(['success' => true]);
     }
+
+    public function destroy(string $sensorId)
+    {
+        $deleted = Sensor::where('sensor_id', $sensorId)->delete();
+        return response()->json(['success' => (bool) $deleted]);
+    }
+
 }

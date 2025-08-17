@@ -19,4 +19,5 @@ class Sensor extends Model
         'sensor_id','sensor_name','sensor_type','home_id',
         'status','last_seen','calibration_meta',
     ];
+    public $timestamps = true;
 }

@@ -523,6 +523,64 @@ const handleDeleteUser = async (userId: string, userName: string) => {
   }
 }
 
+const handleDeleteResident = async (residentId: string, residentName: string) => {
+  if (!confirm(`"${residentName}" を削除します。よろしいですか？`)) return
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      `/api/admin/residents/${residentId}`,
+      { method: "DELETE" }
+    )
+    if (data.success) {
+      await loadResidents()
+      showMessage("高齢者を削除しました")
+    } else {
+      showMessage(data.message || "削除に失敗しました", true)
+    }
+  } catch (e: any) {
+    const msg = String(e?.message ?? e) || "削除に失敗しました"
+    showMessage(msg, true)
+  }
+}
+
+const handleDeleteHome = async (homeId: string, homeName: string) => {
+  if (!confirm(`"${homeName}" を削除します。よろしいですか？`)) return
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      `/api/admin/homes/${homeId}`,
+      { method: "DELETE" }
+    )
+    if (data.success) {
+      await loadHomes()
+      showMessage("高齢者宅を削除しました")
+    } else {
+      showMessage(data.message || "削除に失敗しました", true)
+    }
+  } catch (e: any) {
+    const msg = String(e?.message ?? e) || "削除に失敗しました"
+    showMessage(msg, true)
+  }
+}
+
+const handleDeleteSensor = async (sensorId: string, sensorName: string) => {
+  if (!confirm(`センサー "${sensorName}" を削除します。よろしいですか？`)) return
+  try {
+    const data = await apiFetch<{ success: boolean; message?: string }>(
+      `/api/admin/sensors/${sensorId}`,
+      { method: "DELETE" }
+    )
+    if (data.success) {
+      await loadSensors()
+      showMessage("センサーを削除しました")
+    } else {
+      showMessage(data.message || "削除に失敗しました", true)
+    }
+  } catch (e: any) {
+    const msg = String(e?.message ?? e) || "削除に失敗しました"
+    showMessage(msg, true)
+  }
+}
+
+
 
 
     const filteredUsers = users.filter(
@@ -741,7 +799,7 @@ const handleDeleteUser = async (userId: string, userName: string) => {
                                                     type="password"
                                                     value={newUser.password}
                                                     onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                                                    placeholder="8文字以上を推奨"
+                                                    placeholder="8文字以上のパスワード"
                                                     aria-invalid={!!formErrors.password}
                                                 />
                                                 {formErrors.password && (
@@ -951,6 +1009,14 @@ const handleDeleteUser = async (userId: string, userName: string) => {
                                                         )}
                                                     </p>
                                                 </div>
+                                                <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleDeleteResident(resident.residentId, resident.residentName)}
+                                                title="この見守り対象を削除"
+                                                >
+                                                    <Trash2 className="h-3 w-3" />
+                                                </Button>
                                             </div>
                                         </Card>
                                     ))}
@@ -1063,6 +1129,14 @@ const handleDeleteUser = async (userId: string, userName: string) => {
                                                         </span>
                                                     </div>
                                                 </div>
+                                                <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleDeleteHome(home.homeId, home.homeName)}
+                                                title="この高齢者宅を削除"
+                                                >
+                                                    <Trash2 className="h-3 w-3" />
+                                                </Button>
                                             </div>
                                         </Card>
                                     ))}
@@ -1261,6 +1335,14 @@ const handleDeleteUser = async (userId: string, userName: string) => {
                                                         </span>
                                                     </div>
                                                 </div>
+                                                <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleDeleteSensor(sensor.sensorId, sensor.sensorName)}
+                                                title="このセンサーを削除"
+                                                >
+                                                    <Trash2 className="h-3 w-3" />
+                                                </Button>
                                             </div>
                                         </Card>
                                     ))}
@@ -1311,6 +1393,14 @@ const handleDeleteUser = async (userId: string, userName: string) => {
                                                             </span>
                                                         </div>
                                                     </div>
+                                                    <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => handleDeleteSensor(sensor.sensorId, sensor.sensorName)}
+                                                    title="このセンサーを削除"
+                                                    >
+                                                        <Trash2 className="h-3 w-3" />
+                                                    </Button>
                                                 </div>
                                             </Card>
                                         )

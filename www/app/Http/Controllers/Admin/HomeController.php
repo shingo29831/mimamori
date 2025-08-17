@@ -9,18 +9,28 @@ use Illuminate\Support\Str;
 
 class HomeController extends Controller
 {
+    
     public function index()
     {
-        $homes = Home::query()
-            ->leftJoin('sensors','sensors.home_id','=','homes.home_id')
-            ->groupBy('homes.home_id')
-            ->orderBy('homes.created_at','desc')
-            ->get([
-                'homes.home_id','homes.home_name','homes.address','homes.created_at',
-                DB::raw('COUNT(sensors.sensor_id) as sensor_count')
-            ]);
+        $sensorCounts = DB::table('sensors')
+            ->select('home_id', DB::raw('COUNT(*) AS sensor_count'))
+            ->groupBy('home_id');
 
-        return response()->json(['homes'=>$homes]);
+        $rows = DB::table('homes')
+            ->leftJoinSub($sensorCounts, 'sc', function ($join) {
+                $join->on('sc.home_id', '=', 'homes.home_id');
+            })
+            ->select([
+                'homes.home_id',
+                'homes.home_name',
+                'homes.address',
+                'homes.created_at',
+                DB::raw('COALESCE(sc.sensor_count, 0) AS sensor_count'),
+            ])
+            ->orderByDesc('homes.created_at')
+            ->get();
+
+        return response()->json(['homes' => $rows]);
     }
 
     public function store(Request $request)
@@ -38,4 +48,11 @@ class HomeController extends Controller
 
         return response()->json(['success'=>true]);
     }
+
+    public function destroy(string $homeId)
+    {
+        $deleted = \App\Models\Home::where('home_id', $homeId)->delete();
+        return response()->json(['success' => (bool) $deleted]);
+    }
+
 }
