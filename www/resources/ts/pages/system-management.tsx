@@ -1264,14 +1264,14 @@ const handleAttachUnregisteredSensor = async () => {
                                                                 ? "稼働中"
                                                                 : "停止"}
                                                         </Badge>
-                                                        <span className="text-sm text-gray-500">
+                                                        {/* <span className="text-sm text-gray-500">
                                                             最終稼働:{" "}
                                                             {new Date(
                                                                 sensor.lastActive
                                                             ).toLocaleString(
                                                                 "ja-JP"
                                                             )}
-                                                        </span>
+                                                        </span> */}
                                                     </div>
                                                 </div>
                                                 <Button
