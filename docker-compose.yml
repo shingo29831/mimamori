@@ -10,25 +10,25 @@ services:
       - ./:/src
       - ./docker/app/php.ini:/usr/local/etc/php/php.ini
 
-  scheduler:
-    build:
-      context: ./docker/app   # app と同じビルドを使う
-    user: "1000:1000"
-    depends_on:
-      - app
-      - db
-      - redis
-    volumes:
-      - ./:/src               # artisan にアクセス
-      - ./docker/app/php.ini:/usr/local/etc/php/php.ini
-    working_dir: /src
-    restart: always
-    entrypoint: [ "sh", "-lc" ]
-    command: >
-      'while true; do
-         php artisan schedule:run --no-interaction >> /src/storage/logs/scheduler.log 2>&1;
-         sleep 60;
-       done'
+  # scheduler:
+  #   build:
+  #     context: ./docker/app   # app と同じビルドを使う
+  #   user: "1000:1000"
+  #   depends_on:
+  #     - app
+  #     - db
+  #     - redis
+  #   volumes:
+  #     - ./:/src               # artisan にアクセス
+  #     - ./docker/app/php.ini:/usr/local/etc/php/php.ini
+  #   working_dir: /src
+  #   restart: always
+  #   entrypoint: [ "sh", "-lc" ]
+  #   command: >
+  #     'while true; do
+  #        php artisan schedule:run --no-interaction >> /src/storage/logs/scheduler.log 2>&1;
+  #        sleep 60;
+  #      done'
   
   node:
     build:
@@ -73,16 +73,16 @@ services:
       - "6379:6379"
     restart: always
 
-  queue:
-    build:
-      context: ./docker/app
-    depends_on:
-      - app
-      - redis
-      - db
-    working_dir: /src
-    volumes:
-      - ./:/src
-      - ./docker/app/php.ini:/usr/local/etc/php/php.ini
-    restart: always
-    command: php artisan queue:work --sleep=1 --tries=3 --queue=default,broadcasts
+  # queue:
+  #   build:
+  #     context: ./docker/app
+  #   depends_on:
+  #     - app
+  #     - redis
+  #     - db
+  #   working_dir: /src
+  #   volumes:
+  #     - ./:/src
+  #     - ./docker/app/php.ini:/usr/local/etc/php/php.ini
+  #   restart: always
+  #   command: php artisan queue:work --sleep=1 --tries=3 --queue=default,broadcasts

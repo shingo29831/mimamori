@@ -43,6 +43,8 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
 
     Route::get('guardians', [RelationshipController::class,'guardians']);
 
+    Route::get('sensor-readings',  [SensorReadingController::class,'index']);
+
     Route::get('sensors/{sensorId}/metrics/{metric}/first', [SensorReadingController::class, 'earliest']);
 });
 

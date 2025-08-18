@@ -29,11 +29,11 @@ import {
     Database,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import Echo from "laravel-echo";
-import Pusher from "pusher-js";
-import { useRef } from "react";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
+const HOMES_ENDPOINT =
+  (API_BASE ? `${API_BASE}/api/admin/sensor-readings` : `/api/admin/sensor-readings`);
+
 
 type SensorMetricsEvent = {
   homeId: string;
@@ -75,40 +75,40 @@ export default function StaffDashboard() {
   const [wsConnected, setWsConnected] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const navigate = useNavigate();
-  const echoRef = useRef<Echo<any> | null>(null);
-  const subscribedRef = useRef<Set<string>>(new Set());
+  const POLL_MS = 10_000;
+  const POLL_MAX_MS = 60_000;
 
   
 
-    function ensureEcho() {
-    if (echoRef.current) return echoRef.current;
+    // function ensureEcho() {
+    //     if (echoRef.current) return echoRef.current;
 
-    // Pusher を window にバインド（laravel-echo の既定動作）
-    (window as any).Pusher = Pusher;
+    //     // Pusher を window にバインド（laravel-echo の既定動作）
+    //     (window as any).Pusher = Pusher;
 
-    const echo = new Echo({
-        broadcaster: "pusher",
-        key: import.meta.env.VITE_PUSHER_APP_KEY || "local",
-        wsHost: import.meta.env.VITE_PUSHER_HOST || window.location.hostname,
-        wsPort: Number(import.meta.env.VITE_PUSHER_PORT || 6001),
-        wssPort: Number(import.meta.env.VITE_PUSHER_PORT || 6001),
-        forceTLS: (import.meta.env.VITE_PUSHER_FORCE_TLS || "false") === "true",
-        enabledTransports: ["ws", "wss"],
-        cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER || "mt1",
-        disableStats: (import.meta.env.VITE_PUSHER_DISABLE_STATS || "true") === "true",
-    });
+    //     const echo = new Echo({
+    //         broadcaster: "pusher",
+    //         key: import.meta.env.VITE_PUSHER_APP_KEY || "local",
+    //         wsHost: import.meta.env.VITE_PUSHER_HOST || window.location.hostname,
+    //         wsPort: Number(import.meta.env.VITE_PUSHER_PORT || 6001),
+    //         wssPort: Number(import.meta.env.VITE_PUSHER_PORT || 6001),
+    //         forceTLS: (import.meta.env.VITE_PUSHER_FORCE_TLS || "false") === "true",
+    //         enabledTransports: ["ws", "wss"],
+    //         cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER || "mt1",
+    //         disableStats: (import.meta.env.VITE_PUSHER_DISABLE_STATS || "true") === "true",
+    //     });
 
-    // 接続状態の反映
-    const p = (echo.connector as any)?.pusher;
-    if (p?.connection) {
-        p.connection.bind("connected", () => setWsConnected(true));
-        p.connection.bind("disconnected", () => setWsConnected(false));
-        p.connection.bind("unavailable", () => setWsConnected(false));
-    }
+    //     // 接続状態の反映
+    //     const p = (echo.connector as any)?.pusher;
+    //     if (p?.connection) {
+    //         p.connection.bind("connected", () => setWsConnected(true));
+    //         p.connection.bind("disconnected", () => setWsConnected(false));
+    //         p.connection.bind("unavailable", () => setWsConnected(false));
+    //     }
 
-    echoRef.current = echo;
-    return echo;
-    }
+    //     echoRef.current = echo;
+    //     return echo;
+    // }
 
     function applyMetricsUpdate(prev: HomeStatus[], evt: SensorMetricsEvent): HomeStatus[] {
         return prev.map((h) => {
@@ -132,33 +132,76 @@ export default function StaffDashboard() {
 
     // (A) 購読: homes が決まったら各 home のチャネルに一度だけ参加
     useEffect(() => {
-    if (!homes.length) return;
+        let timer: number | undefined;
+        let aborted = false;
+        let interval = POLL_MS;
 
-    const echo = ensureEcho();
-    const subs = subscribedRef.current;
-
-    homes.forEach((h) => {
-        if (subs.has(h.homeId)) return; // 既に購読済みならスキップ
-
-        echo.channel(`homes.${h.homeId}`)
-        .listen(".SensorMetricsUpdated", (payload: SensorMetricsEvent) => {
-            setHomes((prev) => applyMetricsUpdate(prev, payload));
-        });
-
-        subs.add(h.homeId);
-    });
-    }, [homes]); // ← homes がセット/増減されたタイミングで購読を増やす
-
-    useEffect(() => {
-        return () => {
-            const echo = echoRef.current;
-            if (!echo) return;
-            subscribedRef.current.forEach((hid) => {
-            echo.leave(`homes.${hid}`);
+        const fetchOnce = async () => {
+            const controller = new AbortController();
+            const signal = controller.signal;
+            try {
+            const token = localStorage.getItem("token");
+            const res = await fetch(HOMES_ENDPOINT, {
+                headers: {
+                Accept: "application/json",
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                signal,
             });
-            subscribedRef.current.clear();
+
+            if (res.status === 401) {
+                localStorage.removeItem("token");
+                navigate("/login", { replace: true });
+                return;
+            }
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+            const data: HomeStatus[] = await res.json();
+            if (aborted) return;
+
+            setHomes(Array.isArray(data) ? data : []);
+            setActiveAlerts(data.reduce((acc, h) => acc + (h.alerts?.length ?? 0), 0));
+            setWsConnected(true);
+
+            // 成功したら間隔をリセット
+            interval = POLL_MS;
+            } catch (e) {
+            if ((e as any)?.name === "AbortError") return;
+            console.error("Polling /api/admin/sensor-readings failed:", e);
+            setWsConnected(false);
+            // 失敗したら指数バックオフ（上限あり）
+            interval = Math.min(interval * 2, POLL_MAX_MS);
+            } finally {
+            if (!aborted) {
+                if (timer) clearTimeout(timer);
+                timer = window.setTimeout(fetchOnce, interval);
+            }
+            }
         };
-    }, []);
+
+        // 初回即時取得
+        fetchOnce();
+
+        // タブ復帰時に即時更新
+        const onVisible = () => {
+            if (document.visibilityState === "visible") {
+            if (timer) clearTimeout(timer);
+            interval = POLL_MS;
+            fetchOnce();
+            }
+        };
+        document.addEventListener("visibilitychange", onVisible);
+
+        return () => {
+            aborted = true;
+            if (timer) clearTimeout(timer);
+            document.removeEventListener("visibilitychange", onVisible);
+        };
+    }, [navigate]);
+
+
+    
+
 
     // useEffect(() => {
     //     // モックデータの初期化
@@ -389,7 +432,7 @@ export default function StaffDashboard() {
               <div className="flex items-center gap-2">
                 <Wifi className={`h-4 w-4 ${wsConnected ? "text-green-500" : "text-red-500"}`} />
                 <span className="text-sm text-gray-600">
-                  {wsConnected ? "リアルタイム接続中" : "接続エラー"}
+                  {wsConnected ? "同期中" : "オフライン"}
                 </span>
               </div>
               <Button variant="outline" size="sm">
@@ -474,18 +517,14 @@ export default function StaffDashboard() {
                                 </CardHeader>
                                 <CardContent>
                                     <div className="text-2xl font-bold">
-                                        {(
-                                            homes.reduce(
-                                                (acc, home) =>
-                                                    acc + home.temperature,
-                                                0
-                                            ) / homes.length
-                                        ).toFixed(1)}
-                                        °C
+                                        {(() => {
+                                            const vals = homes
+                                            .map(h => h.temperature)
+                                            .filter(v => Number.isFinite(v) && v !== 0);
+                                            return vals.length ? (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1) + "°C" : "—";
+                                        })()}
                                     </div>
-                                    <p className="text-xs text-muted-foreground">
-                                        全宅平均
-                                    </p>
+                                    <p className="text-xs text-muted-foreground">全宅平均</p>
                                 </CardContent>
                             </Card>
 
@@ -508,6 +547,11 @@ export default function StaffDashboard() {
                         </div>
 
                         {/* 高齢者宅状況グリッド */}
+                        {homes.length === 0 ? (
+                            <div className="text-sm text-gray-500">
+                                表示できる宅がありません。
+                            </div>
+                        ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {homes.map((home) => (
                                 <Card key={home.homeId} className="relative">
@@ -637,7 +681,7 @@ export default function StaffDashboard() {
                                                                         "high"
                                                                             ? "緊急"
                                                                             : alert.severity ===
-                                                                              "medium"
+                                                                            "medium"
                                                                             ? "注意"
                                                                             : "軽微"}
                                                                     </Badge>
@@ -657,6 +701,7 @@ export default function StaffDashboard() {
                                 </Card>
                             ))}
                         </div>
+                        )}
                     </TabsContent>
 
                     <TabsContent value="alerts">

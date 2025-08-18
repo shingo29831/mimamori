@@ -11,7 +11,43 @@ import { LogOut } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "")
+// 先頭の定数群の近くに追加
+const SENSOR_READINGS_ENDPOINT =
+(API_BASE ? `${API_BASE}/api/admin/sensor-readings` : `/api/admin/sensor-readings`);
 
+type SensorItem = {
+    sensorId: string;
+    type: "MT10" | "MT20" | "MT30" | "MV23" | "other";
+    status: "active" | "inactive";
+    lastSeen: string | null;
+};
+
+type BackendHome = {
+    homeId: string;
+    homeName: string;
+    residentName?: string;
+    address: string;
+    temperature: number;   // 平均
+    humidity: number;      // 平均
+    doorStatus: "open" | "closed";
+    lastActivity: string;
+    fallDetected: boolean;
+    alerts: Array<{
+        type: "fall" | "temperature" | "humidity" | "door" | "activity";
+        message: string;
+        received_at: string;
+        severity: "high" | "medium" | "low";
+    }>;
+    sensors: SensorItem[];
+        recentEvents?: Array<{
+        sensorId?: string;
+        metric: "door" | "temperature" | "humidity" | "fall" | "activity";
+        value?: any;
+        received_at: string;        // ISO or human-readable
+        note?: string;            // 表示用の任意メッセージ
+        severity?: "high" | "medium" | "low";
+    }>;
+};
 
 interface ResidentStatus {
   residentId: string
@@ -28,7 +64,7 @@ interface ResidentStatus {
   alerts: Array<{
     type: "fall" | "temperature" | "humidity" | "door" | "activity"
     message: string
-    timestamp: string
+    received_at: string
     severity: "high" | "medium" | "low"
   }>
 }
@@ -41,134 +77,122 @@ interface FamilyUserData {
 }
 
 export default function FamilyDashboard() {
-  const [familyData, setFamilyData] = useState<FamilyUserData | null>(null)
-  const [selectedResidentId, setSelectedResidentId] = useState<string>("")
-  const [wsConnected, setWsConnected] = useState(false)
-  const navigate = useNavigate()
-  const handleLogout = async () => {
-    const token = localStorage.getItem("token")
-    try {
-      if (token) {
-        await fetch(`${API_BASE}/api/logout`, {
-          method: "POST",
-          headers: {
-            Accept: "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-        })
-      }
-    } catch {
-      // 通信失敗でもクライアント側はログアウトさせる
-    } finally {
-      localStorage.removeItem("token")
-      navigate("/login") // ルーティング先はプロジェクトのログインURLに合わせてください
-      // window.location.href = "/login" でもOK
-    }
-  }
-
-  useEffect(() => {
-    // 家族ユーザーに紐づけられた複数の高齢者のモックデータ
-    const mockFamilyData: FamilyUserData = {
-      userId: "family_001",
-      userName: "田中 太郎",
-      email: "tanaka@email.com",
-      linkedResidents: [
-        {
-          residentId: "res_001",
-          residentName: "田中 花子",
-          homeId: "home_001",
-          homeName: "田中花子宅",
-          address: "東京都世田谷区桜丘1-1-1",
-          temperature: 24.5,
-          humidity: 55,
-          doorStatus: "closed",
-          lastActivity: "5分前",
-          relationship: "母",
-          fallDetected: false,
-          alerts: [],
-        },
-        {
-          residentId: "res_005",
-          residentName: "田中 一郎",
-          homeId: "home_005",
-          homeName: "田中一郎宅",
-          address: "東京都世田谷区桜丘2-2-2",
-          temperature: 26.2,
-          humidity: 58,
-          doorStatus: "open",
-          lastActivity: "10分前",
-          relationship: "父",
-          fallDetected: false,
-          alerts: [
-            {
-              type: "temperature",
-              message: "室温がやや高めです (26.2°C)",
-              timestamp: "5分前",
-              severity: "medium",
+    const [familyData, setFamilyData] = useState<FamilyUserData | null>(null)
+    const [selectedResidentId, setSelectedResidentId] = useState<string>("")
+    const [wsConnected, setWsConnected] = useState(false)
+    // コンポーネント内の state に追加
+    const [homesData, setHomesData] = useState<BackendHome[]>([]);
+    const navigate = useNavigate()
+    const handleLogout = async () => {
+        const token = localStorage.getItem("token")
+        try {
+        if (token) {
+            await fetch(`${API_BASE}/api/logout`, {
+            method: "POST",
+            headers: {
+                Accept: "application/json",
+                Authorization: `Bearer ${token}`,
             },
-          ],
-        },
-        {
-          residentId: "res_006",
-          residentName: "田中 祖母",
-          homeId: "home_006",
-          homeName: "田中祖母宅",
-          address: "東京都世田谷区桜丘3-3-3",
-          temperature: 23.8,
-          humidity: 52,
-          doorStatus: "closed",
-          lastActivity: "2時間前",
-          relationship: "祖母",
-          fallDetected: true,
-          alerts: [
-            {
-              type: "fall",
-              message: "転倒の可能性が検知されました（10秒以上継続）",
-              timestamp: "1時間前",
-              severity: "high",
-            },
-            {
-              type: "activity",
-              message: "長時間活動が検知されていません",
-              timestamp: "2時間前",
-              severity: "medium",
-            },
-          ],
-        },
-      ],
-    }
-
-    setFamilyData(mockFamilyData)
-    
-    // 最初の高齢者を選択状態にする
-    if (mockFamilyData.linkedResidents.length > 0) {
-      setSelectedResidentId(mockFamilyData.linkedResidents[0].residentId)
+            })
+        }
+        } catch {
+        // 通信失敗でもクライアント側はログアウトさせる
+        } finally {
+        localStorage.removeItem("token")
+        navigate("/login") // ルーティング先はプロジェクトのログインURLに合わせてください
+        // window.location.href = "/login" でもOK
+        }
     }
     
-    setWsConnected(true)
+    useEffect(() => {
+        let aborted = false;
+        let timer: number | undefined;
+        let interval = 10_000;         // 10s
+        const INTERVAL_MAX = 60_000;   // 60s
 
-    // WebSocketによるリアルタイム更新のシミュレーション（10秒ごと）
-    const interval = setInterval(() => {
-      setFamilyData((prev) =>
-        prev
-          ? {
-              ...prev,
-              linkedResidents: prev.linkedResidents.map((resident) => ({
-                ...resident,
-                temperature: resident.temperature + (Math.random() - 0.5) * 0.5,
-                humidity: resident.humidity + (Math.random() - 0.5) * 2,
-                // 転倒検知の誤検知対策：10秒以上継続した場合のみアラート
-                fallDetected: Math.random() > 0.99 ? true : resident.fallDetected,
-              })),
+        const fetchHomes = async () => {
+            const controller = new AbortController();
+            try {
+                const token = localStorage.getItem("token") ?? "";
+                const res = await fetch(SENSOR_READINGS_ENDPOINT, {
+                    headers: {
+                    Accept: "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                    },
+                    signal: controller.signal,
+                });
+
+                if (res.status === 401) {
+                    localStorage.removeItem("token");
+                    navigate("/login", { replace: true });
+                    return;
+                }
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const data: BackendHome[] = await res.json();
+                if (aborted) return;
+                setHomesData(Array.isArray(data) ? data : []);
+                setWsConnected(true);
+                interval = 10_000; // 成功したらリセット
+                const linkedResidents = (Array.isArray(data) ? data : []).map((h) => ({
+                    residentId: h.homeId, // 家単位しかなければ homeId を代用
+                    residentName: h.residentName ?? h.homeName,
+                    homeId: h.homeId,
+                    homeName: h.homeName,
+                    address: h.address,
+                    temperature: h.temperature,
+                    humidity: h.humidity,
+                    doorStatus: h.doorStatus,
+                    lastActivity: h.lastActivity,
+                    relationship: "",            // 家族との続柄が別APIならここは空でOK
+                    fallDetected: h.fallDetected,
+                    alerts: h.alerts ?? [],
+                }));
+
+                setFamilyData((prev) => {
+                    const base = prev ?? { userId: "me", userName: "ご家族", email: "", linkedResidents: [] };
+                    return { ...base, linkedResidents };
+                });
+                // ★ 選択IDが未設定 or 無効なら先頭を選ぶ
+                setSelectedResidentId((cur) => {
+                    if (!linkedResidents.length) return "";
+                    return linkedResidents.some(r => r.residentId === cur)
+                    ? cur
+                    : linkedResidents[0].residentId;
+                });
+            } catch (e) {
+            if ((e as any)?.name !== "AbortError") {
+                console.error("GET /api/admin/sensor-readings failed:", e);
+                setWsConnected(false);
+                interval = Math.min(interval * 2, INTERVAL_MAX); // バックオフ
             }
-          : null,
-      )
-    }, 10000)
+            } finally {
+            if (!aborted) {
+                if (timer) clearTimeout(timer);
+                timer = window.setTimeout(fetchHomes, interval);
+            }
+            }
+        };
 
-    return () => clearInterval(interval)
-  }, [])
+        fetchHomes();
+        const onVisible = () => {
+            if (document.visibilityState === "visible") {
+            if (timer) clearTimeout(timer);
+            interval = 10_000;
+            fetchHomes();
+            }
+        };
+        document.addEventListener("visibilitychange", onVisible);
 
-  if (!familyData) {
+        return () => {
+            aborted = true;
+            if (timer) clearTimeout(timer);
+            document.removeEventListener("visibilitychange", onVisible);
+        };
+    }, [navigate]);
+
+
+  if (!familyData || homesData.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -183,6 +207,8 @@ export default function FamilyDashboard() {
     (resident) => resident.residentId === selectedResidentId
   )
 
+    
+
   if (!selectedResident) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -193,6 +219,9 @@ export default function FamilyDashboard() {
       </div>
     )
   }
+    const selectedHome: BackendHome | undefined = homesData.find(
+        h => h.homeId === selectedResident.homeId
+    );
 
   const getTempColor = (temp: number) => {
     if (temp > 26) return "text-red-600"
@@ -323,15 +352,21 @@ export default function FamilyDashboard() {
                     <Heart className="h-5 w-5 text-red-500" />
                     {selectedResident.residentName}さん
                   </CardTitle>
-                  <CardDescription>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Home className="h-4 w-4" />
-                      {selectedResident.homeName}
-                    </div>
-                    <div className="text-sm text-gray-500 mt-1">宅ID: {selectedResident.homeId}</div>
-                    <div className="text-sm text-gray-500">{selectedResident.address}</div>
-                    <div className="text-sm mt-1">あなたとの関係: {selectedResident.relationship}</div>
-                  </CardDescription>
+                    <CardDescription>
+                        <span className="inline-flex items-center gap-2 mt-1">
+                            <Home className="h-4 w-4" />
+                            {selectedResident.homeName}
+                        </span>
+                        <span className="block text-sm text-gray-500 mt-1">
+                            宅ID: {selectedResident.homeId}
+                        </span>
+                        <span className="block text-sm text-gray-500">
+                            {selectedResident.address}
+                        </span>
+                        <span className="block text-sm mt-1">
+                            あなたとの関係: {selectedResident.relationship}
+                        </span>
+                    </CardDescription>
                 </div>
                 <Badge variant="outline" className="text-green-600 border-green-600">
                   見守り中
@@ -360,6 +395,42 @@ export default function FamilyDashboard() {
               </AlertDescription>
             </Alert>
           )}
+          
+            {selectedHome && (
+                <Card>
+                    <CardHeader>
+                    <CardTitle>センサー一覧（{selectedHome.homeName}）</CardTitle>
+                    <CardDescription>タイプ／状態／最終受信時刻</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                    {selectedHome.sensors.length === 0 ? (
+                        <div className="text-sm text-gray-500">登録センサーがありません。</div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {selectedHome.sensors.map(s => (
+                            <div
+                            key={s.sensorId}
+                            className={`flex items-center justify-between p-3 rounded border
+                                ${s.status === "active" ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}
+                            `}
+                            >
+                            <div className="space-y-1">
+                                <div className="font-medium">{s.sensorId}</div>
+                                <div className="text-xs text-gray-500">種類: {s.type}</div>
+                                <div className="text-xs text-gray-500">
+                                最終受信: {s.lastSeen ? s.lastSeen : "—"}
+                                </div>
+                            </div>
+                            <Badge variant={s.status === "active" ? "default" : "destructive"}>
+                                {s.status === "active" ? "稼働中" : "停止"}
+                            </Badge>
+                            </div>
+                        ))}
+                        </div>
+                    )}
+                    </CardContent>
+                </Card>
+            )}
 
           {/* 現在の状況 */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -427,7 +498,7 @@ export default function FamilyDashboard() {
                         <div className="flex justify-between items-start">
                           <div>
                             <div className={alert.severity === "high" ? "font-medium text-red-700" : ""}>{alert.message}</div>
-                            <div className="text-sm text-gray-500 mt-1">{alert.timestamp}</div>
+                            <div className="text-sm text-gray-500 mt-1">{alert.received_at}</div>
                           </div>
                           <Badge variant={getAlertColor(alert.severity)}>
                             {alert.severity === "high" ? "緊急" : alert.severity === "medium" ? "注意" : "軽微"}
@@ -501,45 +572,177 @@ export default function FamilyDashboard() {
             </Card>
           )}
 
+            {/* 紐づく全ての家の状況（APIの実測値ベース） */}
+            <Card>
+                <CardHeader>
+                    <CardTitle>各家の状況（実測）</CardTitle>
+                    <CardDescription>/api/admin/sensor-readings より</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {familyData.linkedResidents.map((res) => {
+                        const h = homesData.find(x => x.homeId === res.homeId);
+                        return (
+                        <div key={res.homeId} className="p-4 rounded-lg border bg-white">
+                            <div className="flex items-center justify-between">
+                            <div className="font-medium">{res.homeName}</div>
+                            <Badge variant={h?.doorStatus === "open" ? "default" : "secondary"}>
+                                玄関 {h?.doorStatus === "open" ? "開" : "閉"}
+                            </Badge>
+                            </div>
+                            <div className="mt-2 text-sm text-gray-600">{res.address}</div>
+
+                            <div className="grid grid-cols-3 gap-3 mt-3">
+                            <div className="text-center p-2 rounded bg-gray-50">
+                                <div className="text-xs text-gray-500">温度</div>
+                                <div className="text-lg font-bold">
+                                {h ? `${h.temperature.toFixed(1)}°C` : "—"}
+                                </div>
+                            </div>
+                            <div className="text-center p-2 rounded bg-gray-50">
+                                <div className="text-xs text-gray-500">湿度</div>
+                                <div className="text-lg font-bold">
+                                {h ? `${h.humidity.toFixed(0)}%` : "—"}
+                                </div>
+                            </div>
+                            <div className="text-center p-2 rounded bg-gray-50">
+                                <div className="text-xs text-gray-500">最終活動</div>
+                                <div className="text-sm font-medium truncate">
+                                {h?.lastActivity ?? "—"}
+                                </div>
+                            </div>
+                            </div>
+
+                            {/* センサー簡易列挙 */}
+                            <div className="mt-3 flex flex-wrap gap-2">
+                            {(h?.sensors ?? []).map(s => (
+                                <Badge
+                                key={s.sensorId}
+                                variant={s.status === "active" ? "default" : "secondary"}
+                                className="text-xs"
+                                title={`${s.sensorId} / lastSeen: ${s.lastSeen ?? "—"}`}
+                                >
+                                {s.type}
+                                </Badge>
+                            ))}
+                            </div>
+                        </div>
+                        );
+                    })}
+                    </div>
+                </CardContent>
+            </Card>
+
           {/* 最近の活動履歴 */}
           <Card>
             <CardHeader>
-              <CardTitle>最近の活動履歴</CardTitle>
-              <CardDescription>{selectedResident.residentName}さんの過去24時間の活動状況</CardDescription>
+                <CardTitle>最近の活動履歴</CardTitle>
+                <CardDescription>
+                {selectedResident.residentName}さんの過去24時間の活動状況
+                </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between py-2 border-b">
-                  <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span>玄関ドアが開かれました</span>
-                  </div>
-                  <span className="text-sm text-gray-500">{selectedResident.lastActivity}</span>
-                </div>
-                <div className="flex items-center justify-between py-2 border-b">
-                  <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    <span>室温が変化しました ({selectedResident.temperature.toFixed(1)}°C)</span>
-                  </div>
-                  <span className="text-sm text-gray-500">1時間前</span>
-                </div>
-                <div className="flex items-center justify-between py-2 border-b">
-                  <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span>玄関ドアが閉じられました</span>
-                  </div>
-                  <span className="text-sm text-gray-500">2時間前</span>
-                </div>
-                <div className="flex items-center justify-between py-2 border-b">
-                  <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                    <span>リビングで活動を検知</span>
-                  </div>
-                  <span className="text-sm text-gray-500">3時間前</span>
-                </div>
-              </div>
+                {(() => {
+                // selectedHome（/api/admin/sensor-readings 由来）からイベント配列を優先使用
+                const evts = (selectedHome?.recentEvents ?? []).slice(0, 50);
+
+                // recentEvents が無ければフォールバックで簡易イベントを合成
+                const fallback: Array<{
+                    color: string; label: string; time: string;
+                }> = [];
+
+                if (!evts.length) {
+                    // ドア
+                    fallback.push({
+                    color: "bg-green-500",
+                    label: `玄関ドアが${selectedHome?.doorStatus === "open" ? "開" : "閉"}です`,
+                    time: selectedHome?.lastActivity ?? "—",
+                    });
+                    // 温度
+                    if (Number.isFinite(selectedHome?.temperature)) {
+                    fallback.push({
+                        color: "bg-blue-500",
+                        label: `室温更新 (${selectedHome!.temperature.toFixed(1)}°C)`,
+                        time: selectedHome?.lastActivity ?? "—",
+                    });
+                    }
+                    // 湿度
+                    if (Number.isFinite(selectedHome?.humidity)) {
+                    fallback.push({
+                        color: "bg-cyan-500",
+                        label: `湿度更新 (${selectedHome!.humidity.toFixed(0)}%)`,
+                        time: selectedHome?.lastActivity ?? "—",
+                    });
+                    }
+                    // 各センサーの最終受信
+                    (selectedHome?.sensors ?? []).forEach(s => {
+                    fallback.push({
+                        color: s.status === "active" ? "bg-purple-500" : "bg-gray-400",
+                        label: `センサー ${s.sensorId}（${s.type}）から受信`,
+                        time: s.lastSeen ?? "—",
+                    });
+                    });
+                }
+
+                // UI レンダリング
+                if (evts.length) {
+                    const colorByMetric: Record<string, string> = {
+                    door: "bg-green-500",
+                    temperature: "bg-blue-500",
+                    humidity: "bg-cyan-500",
+                    fall: "bg-red-500",
+                    activity: "bg-purple-500",
+                    };
+                    return (
+                    <div className="space-y-3">
+                        {evts.map((e, i) => {
+                        const dot = colorByMetric[e.metric] ?? "bg-gray-400";
+                        const label =
+                            e.note ??
+                            (e.metric === "door"
+                            ? `ドアの最終イベント: ${String(e.value ?? "").toLowerCase().includes("open") ? "開" : "閉"}`
+                            : e.metric === "temperature"
+                            ? `室温 ${Number.isFinite(Number(e.value)) ? Number(e.value).toFixed(1) + "°C" : ""}`
+                            : e.metric === "humidity"
+                            ? `湿度 ${Number.isFinite(Number(e.value)) ? Number(e.value).toFixed(0) + "%" : ""}`
+                            : e.metric === "fall"
+                            ? `転倒検知`
+                            : `活動 (${e.metric})`);
+
+                        return (
+                            <div key={i} className="flex items-center justify-between py-2 border-b">
+                            <div className="flex items-center gap-3">
+                                <div className={`w-2 h-2 ${dot} rounded-full`}></div>
+                                <span>
+                                {label}
+                                {e.sensorId ? <span className="text-xs text-gray-500 ml-2">[{e.sensorId}]</span> : null}
+                                </span>
+                            </div>
+                            <span className="text-sm text-gray-500">{e.received_at}</span>
+                            </div>
+                        );
+                        })}
+                    </div>
+                    );
+                }
+
+                // フォールバック表示
+                return (
+                    <div className="space-y-3">
+                    {fallback.map((f, i) => (
+                        <div key={i} className="flex items-center justify-between py-2 border-b">
+                        <div className="flex items-center gap-3">
+                            <div className={`w-2 h-2 ${f.color} rounded-full`}></div>
+                            <span>{f.label}</span>
+                        </div>
+                        <span className="text-sm text-gray-500">{f.time}</span>
+                        </div>
+                    ))}
+                    </div>
+                );
+                })()}
             </CardContent>
-          </Card>
+            </Card>
         </div>
       </div>
     </div>
