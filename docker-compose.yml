@@ -10,34 +10,24 @@ services:
       - ./:/src
       - ./docker/app/php.ini:/usr/local/etc/php/php.ini
 
-  # scheduler:
-  #   build:
-  #     context: ./docker/app   # app と同じビルドを使う
-  #   user: "1000:1000"
-  #   depends_on:
-  #     - app
-  #     - db
-  #     - redis
-  #   volumes:
-  #     - ./:/src               # artisan にアクセス
-  #     - ./docker/app/php.ini:/usr/local/etc/php/php.ini
-  #   working_dir: /src
-  #   restart: always
-  #   entrypoint: [ "sh", "-lc" ]
-  #   command: >
-  #     'while true; do
-  #        php artisan schedule:run --no-interaction >> /src/storage/logs/scheduler.log 2>&1;
-  #        sleep 60;
-  #      done'
   
   node:
     build:
-      context: ./docker/node
+      context: ./docker/node          # 既存の Dockerfile を使うならこのまま
+    working_dir: /src/www
     tty: true
     ports:
-      - 5173:5173
+      - "5173:5173"
+    environment:
+      - CHOKIDAR_USEPOLLING=true      # 変更検知の安定化（WSL/共有FS向け）
+      - WATCHPACK_POLLING=true
     volumes:
       - ./:/src
+      - node_modules:/src/www/node_modules  # ← ここが重要（依存を保持）
+    command: >
+      sh -lc "(npm ci || npm i) &&
+              npm run dev -- --host 0.0.0.0"
+
   
   db:
     build:
@@ -86,3 +76,6 @@ services:
   #     - ./docker/app/php.ini:/usr/local/etc/php/php.ini
   #   restart: always
   #   command: php artisan queue:work --sleep=1 --tries=3 --queue=default,broadcasts
+
+volumes:
+  node_modules:
